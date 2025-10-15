@@ -82,40 +82,39 @@ class IR:
 @dataclass
 class dynamic_constraint:
 
-    num_travlers: int
-    rooms_per_night: int
+    num_travlers: Optional[Expr] = None
+    rooms_per_night: Optional[Expr] = None
 
     ## 时间相关
-    daily_total_time_max: int = 840
-    daily_total_time_min: int = 1
-    daily_queue_time_max: int
+    daily_total_time: Optional[Expr] = None
+    daily_queue_time: Optional[Expr] = None
 
-    daily_total_meal_time_max: int
-    daily_total_meal_time_min: int = 1
+    daily_total_meal_time: Optional[Expr] = None
 
-    daily_transportation_time_max: int
+    daily_transportation_time: Optional[Expr] = None
 
-    total_active_time_max: int
-    total_active_time_min: int = 1
-    total_queue_time_max: int
-    total_transportation_time_max: int
+    total_active_time: Optional[Expr] = None
+    total_queue_time: Optional[Expr] = None
+    total_transportation_time: Optional[Expr] = None
     ## POI相关
-    num_attractions_per_day: int = 1
-    meal_frequency: int = 3
-    hotel_frequency: int = 1
+    num_attractions_per_day: Optional[Expr] = None
+    meal_frequency: Optional[Expr] = None
+    hotel_frequency: Optional[Expr] = None
 
     ## 交通相关
     infra_city_transportation: str = 'public_transportation' # or taxi or none
 
     ## 预算相关
-    total_budget: int = 1e12
-    total_meal_budget: int = 1e12
-    total_attraction_ticket_budget: int = 1e12
-    total_hotel_budget: int = 1e12
-    total_transportation_budget: int = 1e12
+    total_budget: Optional[Expr] = None
+    total_meal_budget: Optional[Expr] = None
+    total_attraction_ticket_budget: Optional[Expr] = None
+    total_hotel_budget: Optional[Expr] = None
+    total_transportation_budget: Optional[Expr] = None
 
-    daily_total_budget: int = 1e12
-    daily_total_meal_budget: int = 1e12
-    daily_total_attraction_ticket_budget: int = 1e12
-    daily_total_hotel_budget: int = 1e12
-    daily_total_transportation_budget: int = 1e12
+    daily_total_budget: Optional[Expr] = None
+    daily_total_meal_budget: Optional[Expr] = None
+    daily_total_attraction_ticket_budget: Optional[Expr] = None
+    daily_total_hotel_budget: Optional[Expr] = None
+    daily_total_transportation_budget: Optional[Expr] = None
+
+    extra: str = None
