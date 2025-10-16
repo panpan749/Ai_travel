@@ -82,9 +82,10 @@ class IR:
 @dataclass
 class dynamic_constraint:
 
-    num_travlers: Optional[Expr] = None
-    rooms_per_night: Optional[Expr] = None
-
+    num_travlers: int = None
+    rooms_per_night: int = None
+    change_hotel: bool = False
+    
     ## 时间相关
     daily_total_time: Optional[Expr] = None
     daily_queue_time: Optional[Expr] = None
