@@ -118,3 +118,5 @@ class dynamic_constraint:
     daily_total_transportation_budget: Optional[Expr] = None
 
     extra: str = None
+
+
