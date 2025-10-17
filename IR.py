@@ -85,17 +85,17 @@ class dynamic_constraint:
     num_travlers: int = None
     rooms_per_night: int = None
     change_hotel: bool = False
-    
+
     ## 时间相关
     daily_total_time: Optional[Expr] = None
     daily_queue_time: Optional[Expr] = None
-
     daily_total_meal_time: Optional[Expr] = None
 
     daily_transportation_time: Optional[Expr] = None
 
     total_active_time: Optional[Expr] = None
     total_queue_time: Optional[Expr] = None
+    total_resturant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
     num_attractions_per_day: Optional[Expr] = None
