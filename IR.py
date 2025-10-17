@@ -1,10 +1,113 @@
 from __future__ import annotations
-from typing import Any, Callable, Optional
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+
 
 class Expr:
-    def eval(self, context: dict) -> Any:
+
+    def eval(self, context: Dict[str, Any]) -> Any:
         raise NotImplementedError
+
+    def to_dict(self) -> Dict[str, Any]:
+        raise NotImplementedError
+
+    @staticmethod
+    def from_dict(data: Dict[str, Any]) -> "Expr":
+        node_type = data.get("type")
+        if node_type == "value":
+            return ValueNode(value=data["value"])
+        if node_type == "field":
+            return FieldNode(field=data["field"])
+        if node_type == "op":
+            return OpNode(
+                op=data["op"],
+                left=Expr.from_dict(data["left"]),
+                right=Expr.from_dict(data["right"]),
+            )
+        if node_type == "unary":
+            return UnaryOpNode(
+                op=data["op"],
+                operand=Expr.from_dict(data["operand"]),
+            )
+        if node_type == "arith":
+            return ArithmeticOpNode(
+                op=data["op"],
+                left=Expr.from_dict(data["left"]),
+                right=Expr.from_dict(data["right"]),
+            )
+        if node_type == "aggregate":
+            return AggregateNode(
+                func=data["func"],
+                items=[Expr.from_dict(x) for x in data.get("items", [])],
+            )
+        raise ValueError(f"Unknown expr type: {node_type}")
+
+@dataclass
+class ArithmeticOpNode(Expr):
+    op: str  # '+', '-', '*', '/'
+    left: Expr
+    right: Expr
+
+    def eval(self, context: Dict[str, Any]) -> Any:
+        lval = self.left.eval(context)
+        rval = self.right.eval(context)
+        if self.op == "+":
+            return lval + rval
+        if self.op == "-":
+            return lval - rval
+        if self.op == "*":
+            return lval * rval
+        if self.op == "/":
+            return lval / rval
+        raise ValueError(f"Unknown arithmetic op {self.op}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "arith",
+            "op": self.op,
+            "left": self.left.to_dict(),
+            "right": self.right.to_dict(),
+        }
+
+@dataclass
+class AggregateNode(Expr):
+    """Aggregation over a list of items.
+
+    func: 'sum' | 'min' | 'max' | 'count'
+    items: list of expressions producing numbers/iterables depending on func
+    """
+
+    func: str
+    items: List[Expr]
+
+    def eval(self, context: Dict[str, Any]) -> Any:
+        values = [item.eval(context) for item in self.items]
+        if self.func == "sum":
+            return sum(values)
+        if self.func == "min":
+            return min(values)
+        if self.func == "max":
+            return max(values)
+        if self.func == "count":
+            return len(values)
+        raise ValueError(f"Unknown aggregate func {self.func}")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "aggregate",
+            "func": self.func,
+            "items": [x.to_dict() for x in self.items],
+        }
+
+def _is_iterable(obj: Any) -> bool:
+    if obj is None:
+        return False
+    try:
+        iter(obj)
+        return True
+    except TypeError:
+        return False
+
 
 @dataclass
 class ValueNode(Expr):
@@ -62,6 +165,8 @@ class UnaryOpNode(Expr):
         raise ValueError(f"Unknown unary op {self.op}")
     def to_dict(self):
         return {"type": "unary", "op": self.op, "operand": self.operand.to_dict()}
+
+
 
 
 @dataclass
