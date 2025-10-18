@@ -70,20 +70,22 @@ class template:
             self.model.select_rest[day, r] * (self.model.rest_data[r]['duration'] + self.model.rest_data[r]['queue_time'])
             for r in self.model.restaurants
         )
-        trans_time = sum(
-            self.model.attr_hotel[day, a, h] * (
-                    (1 - self.model.trans_mode[day]) * (
-                    get_trans_params(self.intra_city_trans, h, a, 'taxi_duration') + \
-                    get_trans_params(self.intra_city_trans, a, h, 'taxi_duration')
-            ) + \
-                    self.model.trans_mode[day] * (
-                            get_trans_params(self.intra_city_trans, h, a, 'bus_duration') + \
-                            get_trans_params(self.intra_city_trans, a, h, 'bus_duration')
-                    )
+        if self.ir.travel_days > 1:
+            trans_time = sum(
+                self.model.poi_poi[day, p1, p2] * (
+                        (1 - self.model.trans_mode[day]) * (
+                        get_trans_params(self.intra_city_trans, p1, p2, 'taxi_duration')
+                ) + \
+                        self.model.trans_mode[day] * (
+                                get_trans_params(self.intra_city_trans, p1, p2, 'bus_duration')
+                        )
+                )
+                for p1 in self.model.pois
+                for p2 in self.model.pois
             )
-            for a in self.model.attractions
-            for h in self.model.accommodations
-        )
+        else:
+            trans_time = 0
+
         return activity_time + trans_time
 
     def get_daily_queue_time(self,day):
@@ -98,53 +100,50 @@ class template:
             for r in self.model.restaurants
         )
     
-    def get_daily_total_attraction_time(self,day):
+    def get_daily_total_transportation_time(self,day):
         return sum(
-                    self.model.attr_hotel[day, a, h] * (
-                            (1 - self.model.trans_mode[day]) * (
-                            get_trans_params(self.intra_city_trans, h, a, 'taxi_duration') + \
-                            get_trans_params(self.intra_city_trans, a, h, 'taxi_duration')
-                            )
-                    ) + \
-                    self.model.attr_hotel[day, a, h] * (
-                            self.model.trans_mode[day] * (
-                            get_trans_params(self.intra_city_trans, h, a, 'bus_duration') + \
-                            get_trans_params(self.intra_city_trans, a, h, 'bus_duration')
-                            )
-                    )
-                    for a in self.model.attractions
-                    for h in self.model.accommodations
+                self.model.poi_poi[day, p1, p2] * (
+                        (1 - self.model.trans_mode[day]) * (
+                        get_trans_params(self.intra_city_trans, p1, p2, 'taxi_duration')
+                ) + \
+                        self.model.trans_mode[day] * (
+                                get_trans_params(self.intra_city_trans, p1, p2, 'bus_duration')
+                        )
                 )
+                for p1 in self.model.pois
+                for p2 in self.model.pois
+            ) if self.ir.travel_days > 1 else 0
     
     def get_daily_total_cost(self,day):
         ## 景点，酒店，交通，吃饭，高铁, 人数
-        peoples = self.model.peoples
+        peoples = self.ir.peoples
         attraction_cost = sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['cost']
             for a in self.model.attractions
         )
-
-        hotel_cost = sum(
-            self.model.select_hotel[day, h] * self.model.hotel_data[h]['cost'] * self.cfg.rooms_per_night
-            for h in self.model.accommodations
-        )
+        if day == self.ir.travel_days:
+            hotel_cost = 0
+        else:
+            hotel_cost = sum(
+                self.model.select_hotel[day, h] * self.model.hotel_data[h]['cost'] * self.cfg.rooms_per_night
+                for h in self.model.accommodations
+            )
 
         transport_cost = sum(
-            self.model.attr_hotel[day, a, h] * (
+            self.model.poi_poi[day, p1, p2] * (
                     (1 - self.model.trans_mode[day]) * ((peoples) / 4 + int(peoples % 4 > 0) ) * (
-                    get_trans_params(self.intra_city_trans, h, a, 'taxi_cost') + \
-                    get_trans_params(self.intra_city_trans, a, h, 'taxi_cost')
+                    get_trans_params(self.intra_city_trans, p1, p2, 'taxi_cost') 
                     )
                 )   + \
-            self.model.attr_hotel[day, a, h] * (
+            self.model.poi_poi[day, p1, p2] * (
                         self.model.trans_mode[day] * peoples * (
-                        get_trans_params(self.intra_city_trans, h, a, 'bus_cost') + \
-                        get_trans_params(self.intra_city_trans, a, h, 'bus_cost')
+                        get_trans_params(self.intra_city_trans, p1, p2, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
-        )
+            for p1 in self.model.pois
+            for p2 in self.model.pois
+        ) if self.ir.travel_days > 1 else 0
+
         restaurant_cost = sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['cost']
             for r in self.model.restaurants
@@ -167,45 +166,48 @@ class template:
         )
     
     def get_daily_total_attraction_cost(self,day):
-        peoples = self.model.peoples
+        peoples = self.ir.peoples
         return sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['cost'] * peoples
             for a in self.model.attractions
         )
 
     def get_daily_total_hotel_cost(self,day):
+        if day == self.ir.travel_days:
+            return 0
         return sum(
             self.model.select_hotel[day, h] * self.model.hotel_data[h]['cost'] * self.cfg.rooms_per_night
             for h in self.model.accommodations
         )
 
     def get_daily_total_transportation_cost(self,day):
+        if self.ir.travel_days <= 1:
+            return 0
         peoples = self.ir.peoples
         transport_cost = sum(
-            self.model.attr_hotel[day, a, h] * (
+            self.model.poi_poi[day, p1, p2] * (
                     (1 - self.model.trans_mode[day]) * ((peoples) / 4 + int(peoples % 4 > 0) ) * (
-                    get_trans_params(self.intra_city_trans, h, a, 'taxi_cost') + \
-                    get_trans_params(self.intra_city_trans, a, h, 'taxi_cost')
+                    get_trans_params(self.intra_city_trans, p1, p2, 'taxi_cost') 
                     )
                 )   + \
-            self.model.attr_hotel[day, a, h] * (
+            self.model.poi_poi[day, p1, p2] * (
                         self.model.trans_mode[day] * peoples * (
-                        get_trans_params(self.intra_city_trans, h, a, 'bus_cost') + \
-                        get_trans_params(self.intra_city_trans, a, h, 'bus_cost')
+                        get_trans_params(self.intra_city_trans, p1, p2, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
+            for p1 in self.model.pois
+            for p2 in self.model.pois
         )
         return transport_cost
     def make(self, cfg: dynamic_constraint):
         outer_self = self
         self.cfg = cfg
+        pois = [a['id'] for a in self.poi_data['attractions']] + [h['id'] for h in self.poi_data['accommodations']]
         def field_extract_adapter(self:FieldNode,context: dict):
             self.field = self.field.lower()
             if self.field == 'num_attractions_per_day':
                 day = context.get('day', 1)
-                return sum(outer_self.model.selected_attr[day,a] for a in outer_self.model.attractions)
+                return sum(outer_self.model.select_attr[day,a] for a in outer_self.model.attractions)
             elif self.field == 'num_restaurants_per_day':
                 day = context.get('day', 1)
                 return sum(outer_self.model.select_rest[day,r] for r in outer_self.model.restaurants)
@@ -226,26 +228,26 @@ class template:
             
             elif self.field == 'daily_transportation_time':
                 day = context.get('day', 1)
-                return outer_self.get_daily_total_attraction_time(day)
+                return outer_self.get_daily_total_transportation_time(day)
             
             elif self.field == 'total_active_time':
                 sum_time = 0
-                for day in ir.travel_days:
+                for day in range(ir.travel_days):
                     sum_time += outer_self.get_daily_total_time(day + 1) 
                 return sum_time  
             elif self.field == 'total_transportation_time':
                 sum_time = 0
-                for day in ir.travel_days:
-                    sum_time += outer_self.get_daily_total_attraction_time(day + 1) 
+                for day in range(ir.travel_days):
+                    sum_time += outer_self.get_daily_total_transportation_time(day + 1) 
                 return sum_time
             elif self.field == 'total_queue_time':
                 sum_time = 0
-                for day in ir.travel_days:
+                for day in range(ir.travel_days):
                     sum_time += outer_self.get_daily_queue_time(day + 1) 
                 return sum_time
             elif self.field == 'total_restaurant_time':
                 sum_time = 0
-                for day in ir.travel_days:
+                for day in range(ir.travel_days):
                     sum_time += outer_self.get_daily_total_restaurant_time(day + 1) 
                 return sum_time
             elif self.field == 'total_cost': 
@@ -276,7 +278,7 @@ class template:
             
         FieldNode.eval = field_extract_adapter
 
-        attraction_dict = self.poi_data['attractions']
+        attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
         hotel_dict = self.poi_data['accommodations']
         restaurant_dict = self.poi_data['restaurants']
         
@@ -287,6 +289,7 @@ class template:
         self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
         self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
         self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
+        self.model.pois = pyo.Set(initialize=pois)
 
         self.model.attr_data = pyo.Param(
             self.model.attractions,
@@ -359,35 +362,83 @@ class template:
         self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
         self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
 
-        self.model.attr_hotel = pyo.Var(
-            self.model.days, self.model.attractions, self.model.accommodations,
+        ## last day hotel constraint
+        if ir.travel_days > 1:
+            def last_day_hotel_constraint(model,h):
+                N = ir.travel_days
+                return model.select_hotel[N-1,h] == model.select_hotel[N,h]
+            
+            self.model.last_day_hotel = pyo.Constraint(
+                self.model.accommodations,
+                rule=last_day_hotel_constraint
+            )
+
+        self.model.poi_poi = pyo.Var(
+            self.model.days, self.model.pois, self.model.pois,
             domain=pyo.Binary,
             initialize=0,
             bounds=(0, 1)
-        )   
+        )
+
         ## 一致性约束
-        def link_attr_hotel_rule1(model, d, a, h):
-            return model.attr_hotel[d, a, h] <= model.select_attr[d, a]
+        def self_loop_constraint(model,d, p):
+            return model.poi_poi[d, p, p] == 0
+        
 
-        def link_attr_hotel_rule2(model, d, a, h):
-            return model.attr_hotel[d, a, h] <= model.select_hotel[h]
-
-        def link_attr_hotel_rule3(model, d, a, h):
-            return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[h] - 1
-
-        self.model.link_attr_hotel1 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
-            rule=link_attr_hotel_rule1
-        )
-        self.model.link_attr_hotel2 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
-            rule=link_attr_hotel_rule2
-        )
-        self.model.link_attr_hotel3 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
-            rule=link_attr_hotel_rule3
+        self.model.self_loop = pyo.Constraint(
+            self.model.days,self.model.pois,
+            rule=self_loop_constraint
         )
 
+        self.model.u = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals) ##描述景点的顺序
+        ## join
+        def a_degree_constraint_out(model,d,a):
+            return sum(model.poi_poi[d, a, p] for p in model.pois) == model.select_attr[d, a]
+        
+        def a_degree_constraint_in(model,d,a):
+            return sum(model.poi_poi[d, p, a] for p in model.pois) == model.select_attr[d, a]
+        
+        def h_degree_constraint_out(model,d,h):
+            return sum(model.poi_poi[d, h, p] for p in model.pois) == model.select_hotel[d, h]
+        
+        def h_degree_constraint_in(model,d,h):
+            return sum(model.poi_poi[d, p, h] for p in model.pois) == model.select_hotel[d, h]
+        
+        def mtz_rule(m,d,i,j):
+            M = len(self.model.attractions)
+            if i == j:
+                return pyo.Constraint.Skip
+            return m.u[d, i] - m.u[d, j] + M * m.poi_poi[d, i, j] <= M - 1
+
+        def u_rule(m,d,p):
+            M = len(self.model.attractions)
+            return m.select_attr[d,p] <= m.u[d,p] <= M * m.select_attr[d, p]
+        
+        self.model.a_degree_constraint_out = pyo.Constraint(
+            self.model.days, self.model.attractions,
+            rule=a_degree_constraint_out
+        )
+        self.model.a_degree_constraint_in = pyo.Constraint(
+            self.model.days, self.model.attractions, 
+            rule=a_degree_constraint_in
+        )
+        self.model.h_degree_constraint_out = pyo.Constraint(
+            self.model.days, self.model.accommodations, 
+            rule=h_degree_constraint_out
+        )
+        self.model.h_degree_constraint_in = pyo.Constraint(
+            self.model.days, self.model.accommodations, 
+            rule=h_degree_constraint_in
+        )
+        self.model.mtz = pyo.Constraint(
+            self.model.days, self.model.attractions, self.model.attractions,
+            rule=mtz_rule
+        )
+        self.model.u_rule = pyo.Constraint(
+            self.model.days, self.model.attractions,
+            rule=u_rule
+        )
+        
         self.model.unique_attr = pyo.Constraint(
             self.model.attractions,
             rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
@@ -410,7 +461,7 @@ class template:
 
         self.model.hotel_num = pyo.Constraint(
             self.model.days,
-            rule=lambda m, d:  cfg.hotel_frequency.eval({'day': d}) if (d < self.ir.travel_days or ir.travel_days == 1) else sum(m.select_hotel[d, h] for h in m.accommodations) == 0
+            rule=lambda m, d:  cfg.hotel_frequency.eval({'day': d})
         )
 
         ##约束2
@@ -530,19 +581,17 @@ class template:
 
     def configure_solver(self):
         solver = pyo.SolverFactory('scip')
-        solver.options = {
-            'limits/time': 300,
-            'limits/gap': 0,
-        }
+        solver.options['limits/time'] = 300
+        solver.options['limits/gap'] = 0.0
         return solver
     def solve(self):
         solver = self.configure_solver()
         results = solver.solve(self.model, tee=True)
         return results
     
-    def generate_date_range(self, start_date, end_date, date_format="%Y年%m月%d日"):
+
+    def generate_date_range(self, start_date, date_format="%Y年%m月%d日"):
         start = datetime.strptime(start_date, date_format)
-        end = datetime.strptime(end_date, date_format)
         days = self.ir.travel_days
         return [
             (start + timedelta(days=i)).strftime(date_format)
@@ -550,7 +599,8 @@ class template:
         ]
 
 
-    def get_selected_train(model, train_type='departure'):
+    def get_selected_train(self,train_type='departure'):
+        model = self.model
         if train_type not in ['departure', 'back']:
             raise ValueError("train_type must in ['departure', 'back']")
 
@@ -567,7 +617,8 @@ class template:
         return selected_train[0]
 
 
-    def get_selected_poi(model, type, day, selected_poi, k=1):
+    def get_selected_poi(self, type, day, selected_poi):
+        model = self.model
         if type == 'restaurant':
             poi_set = model.restaurants
             poi_data = model.rest_data
@@ -585,16 +636,20 @@ class template:
         return selected_poi
 
 
-    def get_selected_hotel(model):
+    def get_selected_hotel(self,day):
+        if day <= 0 or day >= self.ir.travel_days:
+            return 'null'
+        model = self.model
         selected_hotel = [
             model.hotel_data[t]
             for t in model.accommodations
-            if pyo.value(model.select_hotel[t]) > 0.9
+            if pyo.value(model.select_hotel[day,t]) > 0.9
         ]
         return selected_hotel[0]
 
 
-    def get_time(model, selected_attr, selected_rest, departure_trains, back_trains, selected_hotel, day, intra_city_trans):
+    def get_time(self, selected_attr, selected_rest, selected_hotel, day, intra_city_trans):
+        model = self.model
         daily_time = 0
         daily_time += selected_attr['duration']
         for r in selected_rest:
@@ -669,7 +724,9 @@ class template:
             daily_cost += peoples * back_trains['cost']
         return daily_cost + transport_cost, transport_cost
 
-    def generate_daily_plan(self, model, intra_city_trans):
+    def generate_daily_plan(self):
+        model = self.model
+        intra_city_trans = self.intra_city_trans
         departure_trains = self.get_selected_train(model, 'departure')
         back_trains = self.get_selected_train(model, 'back')
         selected_hotel = self.get_selected_hotel(model)
@@ -678,7 +735,7 @@ class template:
         select_at = []
         select_re = []
         travel_days = self.ir.travel_days
-        date = self.generate_date_range(self.ir.start_date, end_date) ##todo
+        date = self.generate_date_range(self.ir.start_date) ##todo
         for day in sorted(model.days):
             attr_details = []
             attr_details = self.get_selected_poi(model, 'attraction', day, select_at)[0]
@@ -717,13 +774,13 @@ class template:
             total_cost += daily_cost
 
         return { #todo
-            "budget": budget,
-            "peoples": peoples,
+            "budget": self.ir.budgets,
+            "peoples": self.ir.peoples,
             "travel_days": travel_days,
-            "origin_city": origin_city,
-            "destination_city": destination_city,
-            "start_date": start_date,
-            "end_date": end_date,
+            "origin_city": self.ir.original_city,
+            "destination_city": self.ir.destinate_city,
+            "start_date": self.ir.start_date,
+            "end_date": date[-1],
             "daily_plans": daily_plans,
             "departure_trains": departure_trains,
             "back_trains": back_trains,

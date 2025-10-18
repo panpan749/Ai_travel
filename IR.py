@@ -176,6 +176,7 @@ class IR:
     travel_days: int
     original_city: str
     destinate_city: str
+    budgets: int
 
     attraction_constraints: Optional[Expr] = None
     accommodation_constraints: Optional[Expr] = None
