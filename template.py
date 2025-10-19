@@ -584,6 +584,7 @@ class template:
         solver.options['limits/time'] = 300
         solver.options['limits/gap'] = 0.0
         return solver
+    
     def solve(self):
         solver = self.configure_solver()
         results = solver.solve(self.model, tee=True)
@@ -648,110 +649,154 @@ class template:
         return selected_hotel[0]
 
 
-    def get_time(self, selected_attr, selected_rest, selected_hotel, day, intra_city_trans):
+    def get_time(self, selected_attr, selected_rest, selected_hotel, day):
+        intra_city_trans = self.intra_city_trans
         model = self.model
         daily_time = 0
-        daily_time += selected_attr['duration']
+        for a in selected_attr:
+            daily_time += a['duration']
         for r in selected_rest:
             daily_time += r['queue_time'] +r['duration']
 
-        if pyo.value(model.trans_mode[day]) > 0.9:
-            transport_time = get_trans_params(
-                intra_city_trans,
-                selected_hotel['id'],
-                selected_attr['id'],
-                'bus_duration'
-            ) + get_trans_params(
-                intra_city_trans,
-                selected_attr['id'],
-                selected_hotel['id'],
-                'bus_duration'
-            )
-        else:
-            transport_time = get_trans_params(
-                intra_city_trans,
-                selected_hotel['id'],
-                selected_attr['id'],
-                'taxi_duration'
-            ) + get_trans_params(
-                intra_city_trans,
-                selected_attr['id'],
-                selected_hotel['id'],
-                'taxi_duration'
-            )
+        if self.ir.travel_days > 1 and len(selected_attr) > 0:
+            ## 提取出景点顺序
+            order = sorted(selected_attr, key=lambda a: model.u[day,a['id']].value)
+
+            if pyo.value(model.trans_mode[day]) > 0.9:
+                transport_time = get_trans_params(
+                    intra_city_trans,
+                    selected_hotel['id'],
+                    order[0]['id'],
+                    'bus_duration'
+                ) + get_trans_params(
+                    intra_city_trans,
+                    order[-1]['id'],
+                    selected_hotel['id'],
+                    'bus_duration'
+                )
+                for i in range(len(order) - 1):
+                    transport_time += get_trans_params(
+                    intra_city_trans,
+                    order[i]['id'],
+                    order[i + 1]['id'],
+                    'bus_duration'
+                )
+            else:
+                transport_time = get_trans_params(
+                    intra_city_trans,
+                    selected_hotel['id'],
+                    order[0]['id'],
+                    'taxi_duration'
+                ) + get_trans_params(
+                    intra_city_trans,
+                    order[-1]['id'],
+                    selected_hotel['id'],
+                    'taxi_duration'
+                )
+                for i in range(len(order) - 1):
+                    transport_time += get_trans_params(
+                    intra_city_trans,
+                    order[i]['id'],
+                    order[i + 1]['id'],
+                    'taxi_duration'
+                )
 
         return daily_time + transport_time, transport_time
 
 
-    def get_cost(self, model, selected_attr, selected_rest, departure_trains, back_trains, selected_hotel, day, intra_city_trans):
+    def get_cost(self, selected_attr, selected_rest, departure_trains, back_trains, selected_hotel, day):
+
+        model = self.model
+        intra_city_trans = self.intra_city_trans
         daily_cost = 0
         peoples = self.ir.peoples
-        daily_cost += peoples * selected_attr['cost']
+        for a in selected_attr:
+            daily_cost += peoples * selected_attr['cost']
         travel_days = self.ir.travel_days
         for r in selected_rest:
             daily_cost += peoples * r['cost']
-
-        if pyo.value(model.trans_mode[day]) > 0.9:
-            transport_cost = peoples * get_trans_params(
-                intra_city_trans,
-                selected_hotel['id'],
-                selected_attr['id'],
-                'bus_cost'
-            ) + peoples * get_trans_params(
-                intra_city_trans,
-                selected_attr['id'],
-                selected_hotel['id'],
-                'bus_cost'
-            )
-        else:
-            transport_cost = get_trans_params(
-                intra_city_trans,
-                selected_hotel['id'],
-                selected_attr['id'],
-                'taxi_cost'
-            ) + get_trans_params(
-                intra_city_trans,
-                selected_attr['id'],
-                selected_hotel['id'],
-                'taxi_cost'
-            )
+        if self.ir.travel_days > 1 and len(selected_attr) > 0:
+            order = sorted(selected_attr, key=lambda a: model.u[day,a['id']].value)
+            if pyo.value(model.trans_mode[day]) > 0.9:
+                transport_cost = get_trans_params(
+                    intra_city_trans,
+                    selected_hotel['id'],
+                    order[0]['id'],
+                    'bus_cost'
+                ) + get_trans_params(
+                    intra_city_trans,
+                    order[-1]['id'],
+                    selected_hotel['id'],
+                    'bus_cost'
+                )
+                for i in range(len(order) - 1):
+                    transport_cost += get_trans_params(
+                    intra_city_trans,
+                    order[i]['id'],
+                    order[i + 1]['id'],
+                    'bus_cost'
+                )
+                transport_cost = peoples * transport_cost
+            else:
+                transport_cost = get_trans_params(
+                    intra_city_trans,
+                    selected_hotel['id'],
+                    order[0]['id'],
+                    'taxi_cost'
+                ) + get_trans_params(
+                    intra_city_trans,
+                    order[-1]['id'],
+                    selected_hotel['id'],
+                    'taxi_cost'
+                )
+                for i in range(len(order) - 1):
+                    transport_cost += get_trans_params(
+                    intra_city_trans,
+                    order[i]['id'],
+                    order[i + 1]['id'],
+                    'taxi_cost'
+                )
+                transport_cost = ((peoples) / 4 + int(peoples % 4 > 0) ) * transport_cost
 
         if day != travel_days:
-            daily_cost += selected_hotel['cost']
+            daily_cost += selected_hotel['cost'] * self.cfg.rooms_per_night
         if day == 1:
             daily_cost += peoples * departure_trains['cost']
         if day == travel_days:
             daily_cost += peoples * back_trains['cost']
+
         return daily_cost + transport_cost, transport_cost
 
     def generate_daily_plan(self):
         model = self.model
         intra_city_trans = self.intra_city_trans
-        departure_trains = self.get_selected_train(model, 'departure')
-        back_trains = self.get_selected_train(model, 'back')
-        selected_hotel = self.get_selected_hotel(model)
+        departure_trains = self.get_selected_train('departure')
+        back_trains = self.get_selected_train('back')
         total_cost = 0
         daily_plans = []
         select_at = []
         select_re = []
         travel_days = self.ir.travel_days
         date = self.generate_date_range(self.ir.start_date) ##todo
-        for day in sorted(model.days):
+        for day in range(1, travel_days + 1):
             attr_details = []
-            attr_details = self.get_selected_poi(model, 'attraction', day, select_at)[0]
-            select_at.append(attr_details['id'])
+            attr_details = self.get_selected_poi('attraction', day, select_at)
+            select_at += [a['id'] for a in attr_details]
             rest_details = []
-            rest_details = self.get_selected_poi(model, 'restaurant', day, select_re)
+            rest_details = self.get_selected_poi('restaurant', day, select_re)
             for r in rest_details:
                 select_re.append(r['id'])
+
             meal_allocation = {
                 'breakfast': rest_details[0],
                 'lunch': rest_details[1],
                 'dinner': rest_details[2]
             }
-
-            daily_time, transport_time = self.get_time(model, attr_details, rest_details, departure_trains, back_trains, selected_hotel, day, intra_city_trans)
-            daily_cost, transport_cost = self.get_cost(model, attr_details, rest_details, departure_trains, back_trains, selected_hotel, day, intra_city_trans)
+            selected_hotel = self.get_selected_hotel(day)
+            daily_time, transport_time = self.get_time(attr_details, rest_details, selected_hotel, day)
+            daily_cost, transport_cost = self.get_cost(attr_details, rest_details, departure_trains, back_trains, selected_hotel, day)
+            if len(attr_details) == 1:
+                attr_details = attr_details[0]
             day_plan = {
                 "date": f"{date[day - 1]}",
                 "cost": round(daily_cost, 2),
@@ -787,7 +832,21 @@ class template:
             "total_cost": round(total_cost, 2),
             "objective_value": round(pyo.value(model.obj), 2)
         }
-    def get_solution(self,sovle_result):
-        pass
+    
+def get_solution(omo:template):
+    solver = omo.configure_solver()
+    results = solver.solve(omo.model, tee=True)
+    plan = omo.generate_daily_plan()
+    print(f"```generated_plan\n{plan}\n```")
 
 
+
+#Todo 目标函数 + LLM交互文件
+
+if __name__ == '__main__':
+    # fetch 数据
+    # 粗排: todo
+    # 构造template
+    # make
+    # get_solution
+    pass
