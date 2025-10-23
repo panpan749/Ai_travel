@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass,field
 from typing import Any, Callable, Dict, Optional
 
 
@@ -361,7 +361,7 @@ class IR:
     transport_constraints: Optional[Expr] = None  # 交通约束
 
 
-
+@dataclass
 class dynamic_constraint:
     """动态约束类，用于表示旅行规划中的各种动态约束条件。
     
@@ -370,7 +370,7 @@ class dynamic_constraint:
     """
 
     ## 时间相关
-    daily_total_time: Optional[Expr] = OpNode('<=',FieldNode('daily_total_time'),ValueNode(840))
+    daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))
     daily_queue_time: Optional[Expr] = None
     daily_total_meal_time: Optional[Expr] = None
 
@@ -381,9 +381,9 @@ class dynamic_constraint:
     total_resturant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
-    num_attractions_per_day: Optional[Expr] = OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1))
-    num_restaurants_per_day: Optional[Expr] = OpNode('==',FieldNode('num_restaurants_per_day'),ValueNode(3))
-    num_hotels_per_day: Optional[Expr] = OpNode('==',FieldNode('num_hotels_per_day'),ValueNode(1))
+    num_attractions_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1)))
+    num_restaurants_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_restaurants_per_day'),ValueNode(3)))
+    num_hotels_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_hotels_per_day'),ValueNode(1)))
 
     ## 交通相关
     infra_city_transportation: str = 'none' # 'public_transportation' or 'taxi' or 'none'
