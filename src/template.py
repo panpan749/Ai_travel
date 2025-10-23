@@ -2,8 +2,9 @@ import pyomo.environ as pyo
 import requests
 from datetime import timedelta, datetime
 from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass,field,asdict
 from typing import Any, Callable, Dict, Optional
+import json
 
 
 class Expr:
@@ -373,7 +374,7 @@ class dynamic_constraint:
     """
 
     ## 时间相关
-    daily_total_time: Optional[Expr] = OpNode('<=',FieldNode('daily_total_time'),ValueNode(840))
+    daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))
     daily_queue_time: Optional[Expr] = None
     daily_total_meal_time: Optional[Expr] = None
 
@@ -384,9 +385,9 @@ class dynamic_constraint:
     total_resturant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
-    num_attractions_per_day: Optional[Expr] = OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1))
-    num_restaurants_per_day: Optional[Expr] = OpNode('==',FieldNode('num_restaurants_per_day'),ValueNode(3))
-    num_hotels_per_day: Optional[Expr] = OpNode('==',FieldNode('num_hotels_per_day'),ValueNode(1))
+    num_attractions_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1)))
+    num_restaurants_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_restaurants_per_day'),ValueNode(3)))
+    num_hotels_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_hotels_per_day'),ValueNode(1)))
 
     ## 交通相关
     infra_city_transportation: str = 'none' # 'public_transportation' or 'taxi' or 'none'
@@ -406,6 +407,115 @@ class dynamic_constraint:
 
     # 额外信息
     extra: str = None  # 其他约束或备注信息
+
+def ir_from_json(json_str: str) -> IR:
+    """从JSON字符串生成IR实例"""
+    # 1. 解析JSON为字典
+    data: Dict[str, Any] = json.loads(json_str)
+    
+    # 2. 处理约束条件（将字典转为Expr对象）
+    def parse_constraint(constraint_data: Optional[Dict[str, Any]]) -> Optional[Expr]:
+        if constraint_data is None:
+            return None
+        return Expr.from_dict(constraint_data)
+    
+    # 3. 构建并返回IR实例
+    return IR(
+        start_date=data["start_date"],
+        peoples=data["peoples"],
+        travel_days=data["travel_days"],
+        original_city=data["original_city"],
+        destinate_city=data["destinate_city"],
+        budgets=data.get("budgets", 0),  # 支持默认值
+        attraction_constraints=parse_constraint(data.get("attraction_constraints")),
+        accommodation_constraints=parse_constraint(data.get("accommodation_constraints")),
+        restaurant_constraints=parse_constraint(data.get("restaurant_constraints")),
+        transport_constraints=parse_constraint(data.get("transport_constraints"))
+    )
+
+def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
+    """从JSON字符串生成dynamic_constraint实例"""
+    # 1. 解析JSON为字典
+    data: Dict[str, Any] = json.loads(json_str)
+    
+    # 2. 工具函数：将字典转为Expr对象（处理None情况）
+    def parse_expr(expr_data: Optional[Dict[str, Any]]) -> Optional[Expr]:
+        if expr_data is None:
+            return None
+        return Expr.from_dict(expr_data)
+    
+    # 3. 映射所有字段（基础字段直接取，Expr字段通过parse_expr转换）
+    return dynamic_constraint(
+        # 时间相关
+        daily_total_time=parse_expr(data.get("daily_total_time")),
+        daily_queue_time=parse_expr(data.get("daily_queue_time")),
+        daily_total_meal_time=parse_expr(data.get("daily_total_meal_time")),
+        daily_transportation_time=parse_expr(data.get("daily_transportation_time")),
+        total_active_time=parse_expr(data.get("total_active_time")),
+        total_queue_time=parse_expr(data.get("total_queue_time")),
+        total_resturant_time=parse_expr(data.get("total_resturant_time")),  # 保持原始拼写
+        total_transportation_time=parse_expr(data.get("total_transportation_time")),
+        
+        # POI相关
+        num_attractions_per_day=parse_expr(data.get("num_attractions_per_day")),
+        num_restaurants_per_day=parse_expr(data.get("num_restaurants_per_day")),
+        num_hotels_per_day=parse_expr(data.get("num_hotels_per_day")),
+        
+        # 交通相关
+        infra_city_transportation=data.get("infra_city_transportation", "none"),  # 使用默认值
+        
+        # 预算相关
+        total_budget=parse_expr(data.get("total_budget")),
+        total_meal_budget=parse_expr(data.get("total_meal_budget")),
+        total_attraction_ticket_budget=parse_expr(data.get("total_attraction_ticket_budget")),
+        total_hotel_budget=parse_expr(data.get("total_hotel_budget")),
+        total_transportation_budget=parse_expr(data.get("total_transportation_budget")),
+        daily_total_budget=parse_expr(data.get("daily_total_budget")),
+        daily_total_meal_budget=parse_expr(data.get("daily_total_meal_budget")),
+        daily_total_attraction_ticket_budget=parse_expr(data.get("daily_total_attraction_ticket_budget")),
+        daily_total_hotel_budget=parse_expr(data.get("daily_total_hotel_budget")),
+        daily_total_transportation_budget=parse_expr(data.get("daily_total_transportation_budget")),
+        
+        # 额外信息
+        extra=data.get("extra")
+    )
+
+def ir_to_json(ir: IR) -> str:
+    """将IR实例序列化为JSON字符串"""
+    # 先将IR转为字典，约束字段通过to_dict()序列化
+    ir_dict = asdict(ir)
+    # 处理约束字段的序列化
+    return json.dumps(ir_dict, ensure_ascii=False, indent=2)
+def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
+    """将 dynamic_constraint 实例转为字典（替代 dataclasses.asdict()）"""
+    # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
+    fields = [
+        # 时间相关
+        "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
+        "total_active_time", "total_queue_time", "total_resturant_time", "total_transportation_time",
+        # POI 相关
+        "num_attractions_per_day", "num_restaurants_per_day", "num_hotels_per_day",
+        # 交通相关
+        "infra_city_transportation",
+        # 预算相关
+        "total_budget", "total_meal_budget", "total_attraction_ticket_budget", "total_hotel_budget",
+        "total_transportation_budget", "daily_total_budget", "daily_total_meal_budget",
+        "daily_total_attraction_ticket_budget", "daily_total_hotel_budget", "daily_total_transportation_budget",
+        # 额外信息
+        "extra"
+    ]
+    
+    result = {}
+    for field in fields:
+        # 获取字段值
+        value = getattr(dc, field, None)
+        # 如果是 Expr 类型，调用 to_dict() 序列化
+        if isinstance(value, Expr):
+            result[field] = value.to_dict()
+        else:
+            result[field] = value
+
+    return json.dumps(result, ensure_ascii=False, indent=2)
 def fetch_data(ir: IR):
     origin_city = ir.original_city
     destination_city = ir.destinate_city 
@@ -473,8 +583,8 @@ class template:
     cross_city_train_back: dict
     poi_data: dict
     intra_city_trans: dict
-
-    def __init__(self,cross_city_train_departure, cross_city_train_back,poi_data,intra_city_trans,ir,model = None):
+    objective_function: str
+    def __init__(self,cross_city_train_departure, cross_city_train_back,poi_data,intra_city_trans,ir,objective,model = None):
         if not model:
             self.model = pyo.ConcreteModel()
         else: self.model = model
@@ -484,6 +594,7 @@ class template:
         self.poi_data = poi_data
         self.intra_city_trans = intra_city_trans
         self.ir = ir
+        self.objective_function = objective
 
 
 
@@ -1002,7 +1113,8 @@ class template:
                 rule=lambda m, d: cfg.daily_total_transportation_budget.eval({'day': d})
             )
 
-        eval(cfg.extra)
+        exec(cfg.extra)
+        exec(self.objective_function)
 
     def configure_solver(self):
         solver = pyo.SolverFactory('scip')
@@ -1271,8 +1383,7 @@ def get_solution(omo:template):
 if __name__ == '__main__':
     ###########################IR && dynamic_constraint#############################
 
-    ir = IR()
-    dc = dynamic_constraint()
+
 
     ##########################################################
 
@@ -1280,7 +1391,7 @@ if __name__ == '__main__':
     # fetch 数据
     cross_city_train_departure, cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
     # 粗排: todo
-    tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
+    tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,objective=objective_func,ir=ir)
     tp.make(dc)
     # 构造template
     # make

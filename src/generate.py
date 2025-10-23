@@ -3,14 +3,19 @@ from base import LLM
 import asyncio
 from IR import *
 from dataclasses import asdict
-import json
+import json,re
+from base import Config
 
+prompt_sys = PromptSystem.getSingleton() 
+static_prompt = prompt_sys.getPrompt('static')
+dynamic_prompt = prompt_sys.getPrompt('dynamic')
+objective_prompt = prompt_sys.getPrompt('objective')
+llm_static = LLM('qwen-max',system_prompt=static_prompt)
+llm_dynamic = LLM('qwen-max',system_prompt=dynamic_prompt)
+llm_objective = LLM('qwen-max',system_prompt=objective_prompt)
 
-# prompt_sys = PromptSystem.getSingleton() 
-# static_prompt = prompt_sys.getPrompt('static')
-# dynamic_prompt = prompt_sys.getPrompt('dynamic')
-# objective_prompt = prompt_sys.getPrompt('objective')
-# llm = LLM('qwen-max')
+code_config = []
+problems = {}
 
 def ir_from_json(json_str: str) -> IR:
     """从JSON字符串生成IR实例"""
@@ -118,9 +123,30 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
             result[field] = value.to_dict()
         else:
             result[field] = value
-            
+
     return json.dumps(result, ensure_ascii=False, indent=2)
 
+def extract_json_block(text: str) -> Optional[str]:
+    """
+    提取形如 \"\"\"json ... \"\"\" 的字符串块，返回第一个匹配项
+    """
+    try:
+        x = json.loads(text)
+        if not isinstance(x,dict) and not isinstance(x,list):
+            raise ValueError('output is not a dict or list')
+        return text
+    except:
+        try:
+            pattern = r'(?:```json(.*?)```|"""json(.*?)""")'   # 非贪婪匹配中间内容
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                ret = match.group(1).strip()
+                json.loads(ret)
+                return ret
+            return None
+        except:
+            return None
+        
 json_str = """
 {
   "daily_total_time": {
@@ -151,3 +177,70 @@ json_str = """
 
 dc = dynamic_constraint_from_json(json_str)
 print(dynamic_constraint_to_dict(dc))
+
+async def get_llm_result_parallel(problem_id):
+    problem = problems.get(str(problem_id))
+    tasks = [
+        llm_static.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。'),
+        llm_dynamic.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。'),
+        llm_objective.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
+    ]
+    results = await asyncio.gather(*tasks)
+    return str(extract_json_block(results[0])),str(extract_json_block(results[1])),results[2]
+
+
+def create_code_file(template_file_path, code_file_path,insert_code:str):
+    
+    indent = Config.get_global_config().config['indent']
+    lineno = Config.get_global_config().config['lineno']
+
+    indent_str = ""
+    for line in insert_code.splitlines():
+        if line.strip() == "":  # 跳过空行
+            indent_str += "\n"
+        else:
+            indent_str += indent + line + "\n"
+    
+    with open(template_file_path, 'r', encoding='utf-8') as in_f, open(code_file_path, 'w', encoding='utf-8') as out_f:
+        for idx,line in enumerate(in_f):
+            if idx == lineno - 1:
+                out_f.write(indent_str)
+            else:
+                out_f.write(line)
+    
+    print(f'成功创建代码文件:{code_file_path}')
+
+def create_code(ir_json,dynamic_json,objective_code):
+    return f"""ir = ir_from_json({ir_json}) \ndc = dynamic_constraint_from_json({dynamic_json})\nobjective_func={objective_code}\n"""
+
+
+if __name__ == '__main__':
+
+    problem_file = Config.get_global_config().config['problem_file']
+    code_path = Config.get_global_config().config['code_path']
+    template_file = Config.get_global_config().config['template_file']
+
+    with open(problem_file, 'r', encoding='utf-8') as f:
+        json_problems = json.load(f)
+        for item in json_problems:
+            problems[item['question_id']] = item['question']
+    
+    for problem in problems:
+        static,dynamic,objective = get_llm_result_parallel(problem)
+        code = create_code(static,dynamic,objective)
+        code_file = f"{code_path}/id_{problem}.py"
+        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=code)
+        sample = {
+            "question_id": sample['question_id'],
+            "question": problems[problem],
+            "code_path": f'code/id_{problem}.py'
+        }
+        code_config.append(sample)
+    
+    dump_file = Config.get_global_config().config['question_prompt']
+
+    with open(dump_file, 'w', encoding='utf-8') as f:
+        json.dump(code_config,f,indent=2,ensure_ascii=False)
+
+    print('执行完成')
+
