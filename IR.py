@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, Dict, Optional
 
 
 class Expr:
@@ -126,7 +126,9 @@ class AggregateNode(Expr):
     """
 
     func: str
-    items: List[Expr]
+    field: str ##list 字段提取
+    filter: Optional[Expr] = None
+    return_field: str ##返回字段，仅在min和max中生效
 
     def eval(self, context: Dict[str, Any]) -> Any:
         """计算聚合表达式的值。
@@ -140,13 +142,34 @@ class AggregateNode(Expr):
         Raises:
             ValueError: 当遇到未知的聚合函数时
         """
-        values = [item.eval(context) for item in self.items]
+        list_context = context['global'] or []
+        if self.func != 'sum':
+            values = [
+                item
+                for item in list_context
+                if self.filter is None or self.filter.eval(item)
+            ]
+        else:
+            values = [
+                item[self.field]
+                for item in list_context
+                if self.filter is None or self.filter.eval(item)
+            ]
+        
         if self.func == "sum":
             return sum(values)
         if self.func == "min":
-            return min(values)
+            min_item = min(values, key=lambda x: x[self.field])
+            if self.return_field == '*':
+                return [item for item in values if item[self.field] == min_item[self.field]]
+            elif isinstance(self.return_field,str):
+                return [item[self.return_field] for item in values if item[self.field] == min_item[self.field]]
         if self.func == "max":
-            return max(values)
+            max_item = max(values, key=lambda x: x[self.field])
+            if self.return_field == '*':
+                return [item for item in values if item[self.field] == max_item[self.field]]
+            elif isinstance(self.return_field,str):
+                return [item[self.return_field] for item in values if item[self.field] == max_item[self.field]]
         if self.func == "count":
             return len(values)
         raise ValueError(f"Unknown aggregate func {self.func}")
@@ -156,7 +179,9 @@ class AggregateNode(Expr):
         return {
             "type": "aggregate",
             "func": self.func,
-            "items": [x.to_dict() for x in self.items],
+            'filter': self.filter.to_dict() if self.filter else None,
+            'field': self.field,
+            'return_field': self.return_field,
         }
 
 def _is_iterable(obj: Any) -> bool:
@@ -324,7 +349,7 @@ class IR:
     travel_days: int  # 旅行天数
     original_city: str  # 出发城市
     destinate_city: str  # 目的地城市（拼写错误，应为destination_city）
-    budgets: int  # 总预算
+    budgets: int = 0  # 总预算 默认不设总预算
 
     # 各类别的约束条件，使用表达式树表示
     attraction_constraints: Optional[Expr] = None  # 景点约束
@@ -343,7 +368,7 @@ class dynamic_constraint:
     """
 
     ## 时间相关
-    daily_total_time: Optional[Expr] = None
+    daily_total_time: Optional[Expr] = OpNode('<=',FieldNode('daily_total_time'),ValueNode(840))
     daily_queue_time: Optional[Expr] = None
     daily_total_meal_time: Optional[Expr] = None
 
@@ -354,12 +379,12 @@ class dynamic_constraint:
     total_resturant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
-    num_attractions_per_day: Optional[Expr] = None
-    meal_frequency: Optional[Expr] = None
-    hotel_frequency: Optional[Expr] = None
+    num_attractions_per_day: Optional[Expr] = OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1))
+    num_restaurants_per_day: Optional[Expr] = OpNode('==',FieldNode('num_restaurants_per_day'),ValueNode(3))
+    num_hotels_per_day: Optional[Expr] = OpNode('==',FieldNode('num_hotels_per_day'),ValueNode(1))
 
     ## 交通相关
-    infra_city_transportation: str = 'public_transportation' # or taxi or none
+    infra_city_transportation: str = 'none' # 'public_transportation' or 'taxi' or 'none'
 
     ## 预算相关
     total_budget: Optional[Expr] = None
