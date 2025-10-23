@@ -70,8 +70,10 @@ class Expr:
         if node_type == "aggregate":
             return AggregateNode(
                 func=data["func"],
-                items=[Expr.from_dict(x) for x in data.get("items", [])],
-            )
+                return_field=data["return_field"],
+                field=data["field"],
+                filter=Expr.from_dict(data["filter"])
+            )            
         raise ValueError(f"Unknown expr type: {node_type}")
 
 @dataclass

@@ -67,7 +67,9 @@ class Expr:
         if node_type == "aggregate":
             return AggregateNode(
                 func=data["func"],
-                items=[Expr.from_dict(x) for x in data.get("items", [])],
+                return_field=data["return_field"],
+                field=data["field"],
+                filter=Expr.from_dict(data["filter"])
             )
         raise ValueError(f"Unknown expr type: {node_type}")
 
@@ -127,8 +129,9 @@ class AggregateNode(Expr):
 
     func: str
     field: str ##list 字段提取
-    filter: Optional[Expr] = None
     return_field: str ##返回字段，仅在min和max中生效
+    filter: Optional[Expr] = None
+    
 
     def eval(self, context: Dict[str, Any]) -> Any:
         """计算聚合表达式的值。
@@ -359,7 +362,6 @@ class IR:
 
 
 
-@dataclass
 class dynamic_constraint:
     """动态约束类，用于表示旅行规划中的各种动态约束条件。
     
