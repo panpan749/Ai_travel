@@ -2,7 +2,7 @@ from __future__ import annotations
 import yaml
 from pathlib import Path
 import asyncio
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 class Colors:
     RESET = "\033[0m"
@@ -23,9 +23,9 @@ class Config:
     def __init__(self, file_name : str) -> None:
         self.file_path = self.configDirPath.joinpath(file_name)
         try:
-            with open(self.file_path, 'r') as f:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
                 self.config = yaml.safe_load(f)
-        except:
+        except Exception as e:
             self.config = {}
             print(f'{Colors.YELLOW}Warning{Colors.RESET}: {self.file_path} not found')
 
@@ -77,8 +77,8 @@ class LLM:
         self.api_url = Config.get_global_config().config['api_url']
         self.api_key = Config.get_global_config().config['api_key']
     
-    def ask_llm(self, prompt):
-        client = OpenAI(api_key=self.api_key,base_url=self.api_url)       
+    async def ask_llm(self, prompt):
+        client = AsyncOpenAI(api_key=self.api_key,base_url=self.api_url)       
         messages = [
             {"role": "system", "content": self.system_prompt},
         ] if self.system_prompt else []
@@ -86,8 +86,8 @@ class LLM:
         messages.append({"role": "user", "content": prompt})
 
         model_name = self.model_name
-        completion = client.chat.completions.create(model=model_name, messages=messages) 
+        completion = await client.chat.completions.create(model=model_name, messages=messages) 
         
         return completion.choices[0].message.content
-    def invoke(self, prompt : str):
-        return self.ask_llm(prompt)
+    async def invoke(self, prompt : str):
+        return await self.ask_llm(prompt)

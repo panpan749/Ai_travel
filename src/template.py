@@ -361,7 +361,8 @@ class IR:
     attraction_constraints: Optional[Expr] = None  # 景点约束
     accommodation_constraints: Optional[Expr] = None  # 住宿约束
     restaurant_constraints: Optional[Expr] = None  # 餐厅约束
-    transport_constraints: Optional[Expr] = None  # 交通约束
+    depature_transport_constraints: Optional[Expr] = None  # 交通约束
+    back_transport_constraints: Optional[Expr] = None
 
 
 
@@ -536,12 +537,18 @@ def fetch_data(ir: IR):
 
 def rough_rank(cross_city_train_departure:list[dict],cross_city_train_back,poi_data,ir:IR):
     
-    if ir.transport_constraints:
-        if isinstance(ir.transport_constraints,OpNode):
-            cross_city_train_departure = [item for item in cross_city_train_departure if ir.transport_constraints.eval(item.update({'global':cross_city_train_departure}))]
-        elif isinstance(ir.transport_constraints, AggregateNode) and (ir.transport_constraints.func == 'min' or ir.transport_constraints.func == 'max'):
-            cross_city_train_departure = ir.transport_constraints.eval({'global':cross_city_train_departure})
-    
+    if ir.depature_transport_constraints:
+        if isinstance(ir.depature_transport_constraints,OpNode):
+            cross_city_train_departure = [item for item in cross_city_train_departure if ir.depature_transport_constraints.eval(item.update({'global':cross_city_train_departure}))]
+        elif isinstance(ir.depature_transport_constraints, AggregateNode) and (ir.depature_transport_constraints.func == 'min' or ir.depature_transport_constraints.func == 'max'):
+            cross_city_train_departure = ir.depature_transport_constraints.eval({'global':cross_city_train_departure})
+  
+    if ir.back_transport_constraints:
+        if isinstance(ir.back_transport_constraints,OpNode):
+            cross_city_train_back = [item for item in cross_city_train_back if ir.back_transport_constraints.eval(item.update({'global':cross_city_train_back}))]
+        elif isinstance(ir.back_transport_constraints, AggregateNode) and (ir.back_transport_constraints.func == 'min' or ir.back_transport_constraints.func == 'max'):
+            cross_city_train_back = ir.back_transport_constraints.eval({'global':cross_city_train_back})
+
     if ir.accommodation_constraints:
         if isinstance(ir.accommodation_constraints,OpNode):
             poi_data['accommodations'] = [item for item in poi_data['accommodations'] if ir.accommodation_constraints.eval(item.update({'global':poi_data['accommodations']}))]
@@ -768,34 +775,34 @@ class template:
             
             elif self.field == 'total_active_time':
                 sum_time = 0
-                for day in range(ir.travel_days):
+                for day in range(outer_self.ir.travel_days):
                     sum_time += outer_self.get_daily_total_time(day + 1) 
                 return sum_time  
             elif self.field == 'total_transportation_time':
                 sum_time = 0
-                for day in range(ir.travel_days):
+                for day in range(outer_self.ir.travel_days):
                     sum_time += outer_self.get_daily_total_transportation_time(day + 1) 
                 return sum_time
             elif self.field == 'total_queue_time':
                 sum_time = 0
-                for day in range(ir.travel_days):
+                for day in range(outer_self.ir.travel_days):
                     sum_time += outer_self.get_daily_queue_time(day + 1) 
                 return sum_time
             elif self.field == 'total_restaurant_time':
                 sum_time = 0
-                for day in range(ir.travel_days):
+                for day in range(outer_self.ir.travel_days):
                     sum_time += outer_self.get_daily_total_restaurant_time(day + 1) 
                 return sum_time
             elif self.field == 'total_cost': 
-                return sum(outer_self.get_daily_total_cost(day) for day in ir.travel_days) 
+                return sum(outer_self.get_daily_total_cost(day) for day in outer_self.ir.travel_days) 
             elif self.field == 'total_hotel_cost':
-                return sum(outer_self.get_daily_total_hotel_cost(day) for day in ir.travel_days)
+                return sum(outer_self.get_daily_total_hotel_cost(day) for day in outer_self.ir.travel_days)
             elif self.field == 'total_attraction_cost':
-                return sum(outer_self.get_daily_total_attraction_cost(day) for day in ir.travel_days)
+                return sum(outer_self.get_daily_total_attraction_cost(day) for day in outer_self.ir.travel_days)
             elif self.field == 'total_restaurant_cost':
-                return sum(outer_self.get_daily_total_restaurant_cost(day) for day in ir.travel_days)
+                return sum(outer_self.get_daily_total_restaurant_cost(day) for day in outer_self.ir.travel_days)
             elif self.field == 'total_transportation_cost':
-                return sum(outer_self.get_daily_total_transportation_cost(day) for day in ir.travel_days)
+                return sum(outer_self.get_daily_total_transportation_cost(day) for day in outer_self.ir.travel_days)
             elif self.field == 'daily_total_cost':
                 day = context.get('day', 1)
                 return outer_self.get_daily_total_cost(day)
@@ -818,7 +825,7 @@ class template:
         hotel_dict = self.poi_data['accommodations']
         restaurant_dict = self.poi_data['restaurants']
         
-        days = range(1,ir.travel_days + 1)
+        days = range(1,self.ir.travel_days + 1)
         self.model.days = pyo.Set(initialize=days)
         self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
         self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
@@ -899,9 +906,9 @@ class template:
         self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
 
         ## last day hotel constraint
-        if ir.travel_days > 1:
+        if self.ir.travel_days > 1:
             def last_day_hotel_constraint(model,h):
-                N = ir.travel_days
+                N = self.ir.travel_days
                 return model.select_hotel[N-1,h] == model.select_hotel[N,h]
             
             self.model.last_day_hotel = pyo.Constraint(

@@ -358,8 +358,8 @@ class IR:
     attraction_constraints: Optional[Expr] = None  # 景点约束
     accommodation_constraints: Optional[Expr] = None  # 住宿约束
     restaurant_constraints: Optional[Expr] = None  # 餐厅约束
-    transport_constraints: Optional[Expr] = None  # 交通约束
-
+    depature_transport_constraints: Optional[Expr] = None  # 交通约束
+    back_transport_constraints: Optional[Expr] = None  # 交通约束
 
 @dataclass
 class dynamic_constraint:

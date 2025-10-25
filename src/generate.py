@@ -10,7 +10,7 @@ prompt_sys = PromptSystem.getSingleton()
 static_prompt = prompt_sys.getPrompt('static')
 dynamic_prompt = prompt_sys.getPrompt('dynamic')
 objective_prompt = prompt_sys.getPrompt('objective')
-llm_static = LLM('qwen-max',system_prompt=static_prompt)
+llm_static = LLM('deepseek-v3.1-nothinking',system_prompt=static_prompt)
 llm_dynamic = LLM('qwen-max',system_prompt=dynamic_prompt)
 llm_objective = LLM('qwen-max',system_prompt=objective_prompt)
 
@@ -39,7 +39,8 @@ def ir_from_json(json_str: str) -> IR:
         attraction_constraints=parse_constraint(data.get("attraction_constraints")),
         accommodation_constraints=parse_constraint(data.get("accommodation_constraints")),
         restaurant_constraints=parse_constraint(data.get("restaurant_constraints")),
-        transport_constraints=parse_constraint(data.get("transport_constraints"))
+        depature_transport_constraints=parse_constraint(data.get("depature_transport_constraints")),
+        back_transport_constraints=parse_constraint(data.get("back_transport_constraints")),
     )
 
 def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
@@ -128,7 +129,7 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
 
 def extract_json_block(text: str) -> Optional[str]:
     """
-    提取形如 \"\"\"json ... \"\"\" 的字符串块，返回第一个匹配项
+    提取形如 \"\"\"json ... \"\"\" 的字符串块，返回最后一个匹配项
     """
     try:
         x = json.loads(text)
@@ -137,46 +138,16 @@ def extract_json_block(text: str) -> Optional[str]:
         return text
     except:
         try:
-            pattern = r'(?:```json(.*?)```|"""json(.*?)""")'   # 非贪婪匹配中间内容
-            match = re.search(pattern, text, re.DOTALL)
-            if match:
-                ret = match.group(1).strip()
+            pattern = r'(?<=```json)(.*?)(?=```)'   # 非贪婪匹配中间内容
+            matches = re.findall(pattern, text,re.DOTALL)
+            if matches:
+                ret = matches[-1].strip()
                 json.loads(ret)
                 return ret
             return None
         except:
             return None
         
-json_str = """
-{
-  "daily_total_time": {
-    "type": "op",
-    "op": "<=",
-    "left": {"type": "field", "field": "daily_total_time"},
-    "right": {"type": "value", "value": 900}
-  },
-  "num_attractions_per_day": {
-    "type": "op",
-    "op": "==",
-    "left": {"type": "field", "field": "num_attractions_per_day"},
-    "right": {"type": "value", "value": 2}
-  },
-  "infra_city_transportation": "public_transportation",
-  "total_budget": {
-    "type": "op",
-    "op": "<=",
-    "left": {"type": "field", "field": "total_budget"},
-    "right": {"type": "value", "value": 8000}
-  },
-  "extra": "亲子旅行，优先选择无障碍设施完善的景点"
-}
-"""
-
-# ir = ir_from_json(json_str)
-# print(ir_to_json(ir))
-
-dc = dynamic_constraint_from_json(json_str)
-print(dynamic_constraint_to_dict(dc))
 
 async def get_llm_result_parallel(problem_id):
     problem = problems.get(str(problem_id))
@@ -186,7 +157,7 @@ async def get_llm_result_parallel(problem_id):
         llm_objective.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
     ]
     results = await asyncio.gather(*tasks)
-    return str(extract_json_block(results[0])),str(extract_json_block(results[1])),results[2]
+    return extract_json_block(results[0]),extract_json_block(results[1]),results[2]
 
 
 def create_code_file(template_file_path, code_file_path,insert_code:str):
@@ -214,8 +185,7 @@ def create_code(ir_json,dynamic_json,objective_code):
     return f"""ir = ir_from_json({ir_json}) \ndc = dynamic_constraint_from_json({dynamic_json})\nobjective_func={objective_code}\n"""
 
 
-if __name__ == '__main__':
-
+async def main():
     problem_file = Config.get_global_config().config['problem_file']
     code_path = Config.get_global_config().config['code_path']
     template_file = Config.get_global_config().config['template_file']
@@ -226,7 +196,7 @@ if __name__ == '__main__':
             problems[item['question_id']] = item['question']
     
     for problem in problems:
-        static,dynamic,objective = get_llm_result_parallel(problem)
+        static,dynamic,objective = await get_llm_result_parallel(problem)
         code = create_code(static,dynamic,objective)
         code_file = f"{code_path}/id_{problem}.py"
         create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=code)
@@ -244,3 +214,24 @@ if __name__ == '__main__':
 
     print('执行完成')
 
+async def test_static():
+    import time
+    test_problem = "2025年7月1日上午，我将从武汉大学地铁站启程前往厦门，开启为期6天的旅行，并于7月6日晚搭乘高铁返程。出发交通指定搭乘G2045次高铁，本次旅行预算控制在20000元以内，期望能深入体验厦门的本地文化与自然风景。请优先安排POI评分高的景点、餐厅与住宿，入住三星级以上宾馆，要求含早餐，且至少吃一次福建菜，并确保每日动线紧凑、交通方便，提升整体出行舒适度。"
+    try:
+        print('正在测试...')
+        begin = time.time()
+        ret = await llm_static.invoke(f'用户的问题是：{test_problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
+        json_ret = extract_json_block(ret)
+        ir = ir_from_json(str(json_ret))
+        end = time.time()
+        json_ret = json.loads(json_ret)
+        print(f'测试结果：{json.dumps(json_ret,indent=2,ensure_ascii=False)}')
+        print(f'耗时：{(end-begin):2f}s')
+    except Exception as e:
+        print(f'发生错误 {e} ,原始输出为\n{ret}')
+
+
+
+if __name__ == '__main__':
+    # asyncio.run(main())
+    asyncio.run(test_static())
