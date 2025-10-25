@@ -373,7 +373,9 @@ class dynamic_constraint:
     这些约束条件会根据具体的旅行需求动态调整，包括时间、预算、选择频率等。
     使用表达式树(Expr)来表示复杂的约束逻辑，支持运行时计算。
     """
-
+    num_travlers: int = None
+    rooms_per_night: int = None
+    change_hotel: bool = False
     ## 时间相关
     daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))
     daily_queue_time: Optional[Expr] = None
@@ -447,6 +449,10 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
     
     # 3. 映射所有字段（基础字段直接取，Expr字段通过parse_expr转换）
     return dynamic_constraint(
+        # 基础字段
+        num_travlers=data["num_travlers"],
+        rooms_per_night=data["rooms_per_night"],
+        change_hotel=data["change_hotel"],
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
@@ -491,6 +497,8 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     """将 dynamic_constraint 实例转为字典（替代 dataclasses.asdict()）"""
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
+        # 基础字段
+        "num_travelers", "rooms_per_night", "change_hotel",
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
         "total_active_time", "total_queue_time", "total_resturant_time", "total_transportation_time",
@@ -991,6 +999,13 @@ class template:
             self.model.restaurants,
             rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
         )
+        if not cfg.change_hotel:
+            def same_hotel_rule(m, d, h):
+                if d == 1:
+                    return pyo.Constraint.Skip
+                return m.select_hotel[d, h] == m.select_hotel[d-1, h]
+            self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
+
         ##约束1
         self.model.attr_num = pyo.Constraint(
             self.model.days,

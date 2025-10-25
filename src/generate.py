@@ -11,7 +11,7 @@ static_prompt = prompt_sys.getPrompt('static')
 dynamic_prompt = prompt_sys.getPrompt('dynamic')
 objective_prompt = prompt_sys.getPrompt('objective')
 llm_static = LLM('deepseek-v3.1-nothinking',system_prompt=static_prompt)
-llm_dynamic = LLM('qwen-max',system_prompt=dynamic_prompt)
+llm_dynamic = LLM('deepseek-v3.1-nothinking',system_prompt=dynamic_prompt)
 llm_objective = LLM('qwen-max',system_prompt=objective_prompt)
 
 code_config = []
@@ -47,7 +47,6 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
     """从JSON字符串生成dynamic_constraint实例"""
     # 1. 解析JSON为字典
     data: Dict[str, Any] = json.loads(json_str)
-    
     # 2. 工具函数：将字典转为Expr对象（处理None情况）
     def parse_expr(expr_data: Optional[Dict[str, Any]]) -> Optional[Expr]:
         if expr_data is None:
@@ -56,6 +55,10 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
     
     # 3. 映射所有字段（基础字段直接取，Expr字段通过parse_expr转换）
     return dynamic_constraint(
+        # 基础字段
+        num_travlers=data["num_travlers"],
+        rooms_per_night=data["rooms_per_night"],
+        change_hotel=data["change_hotel"],
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
@@ -100,6 +103,8 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     """将 dynamic_constraint 实例转为字典（替代 dataclasses.asdict()）"""
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
+        # 基础字段
+        "num_travelers", "rooms_per_night", "change_hotel",
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
         "total_active_time", "total_queue_time", "total_resturant_time", "total_transportation_time",
@@ -127,6 +132,34 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
+def _escape_newlines_inside_strings(s: str) -> str:
+    """
+    在 JSON 文本里，仅在**字符串常量**内部，把裸 '\n' 和 '\r' 转义成 '\\n' 和 '\\r'。
+    不改变字符串外部的换行（合法的空白）。
+    """
+    out = []
+    in_str = False
+    escape = False
+    for ch in s:
+        if escape:
+            out.append(ch)
+            escape = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escape = True
+            continue
+        if ch == '"':
+            in_str = not in_str
+            out.append(ch)
+            continue
+        if in_str and ch == "\n":
+            out.append("\\n")
+        elif in_str and ch == "\r":
+            out.append("\\r")
+        else:
+            out.append(ch)
+    return "".join(out)
 def extract_json_block(text: str) -> Optional[str]:
     """
     提取形如 \"\"\"json ... \"\"\" 的字符串块，返回最后一个匹配项
@@ -142,10 +175,11 @@ def extract_json_block(text: str) -> Optional[str]:
             matches = re.findall(pattern, text,re.DOTALL)
             if matches:
                 ret = matches[-1].strip()
+                ret = _escape_newlines_inside_strings(ret)
                 json.loads(ret)
                 return ret
             return None
-        except:
+        except Exception as e:
             return None
         
 
@@ -230,8 +264,22 @@ async def test_static():
     except Exception as e:
         print(f'发生错误 {e} ,原始输出为\n{ret}')
 
-
+async def test_dynamic():
+    import time
+    test_problem = "我计划于2025年10月15日至19日从广州前往北京开展为期五天的高品质双人旅行，总预算为20000元，需满足以下需求：全程入住四星级及以上标准酒店，行程中须包含颐和园、恭王府博物馆等风景名胜，并安排一次正宗老北京烤鸭体验。15日早上从洛阳龙门站出发，19日晚返回洛阳。返程指定搭乘G651次列车。每日行程需兼顾热门景点与合理动线，避免过度奔波，市内交通以打车为主，整体行程注重舒适性与文化深度，尽量延长游玩时间、减少通勤和排队时间。"
+    try:
+        print('正在测试...')
+        begin = time.time()
+        ret = await llm_dynamic.invoke(f'用户的问题是：{test_problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
+        json_ret = extract_json_block(ret)
+        ir = dynamic_constraint_from_json(str(json_ret))
+        end = time.time()
+        json_ret = json.loads(json_ret)
+        print(f'测试结果：{json.dumps(json_ret,indent=2,ensure_ascii=False)}')
+        print(f'耗时：{(end-begin):2f}s')
+    except Exception as e:
+        print(f'发生错误 {e} ,原始输出为\n{ret}')
 
 if __name__ == '__main__':
     # asyncio.run(main())
-    asyncio.run(test_static())
+    asyncio.run(test_dynamic())

@@ -368,6 +368,9 @@ class dynamic_constraint:
     这些约束条件会根据具体的旅行需求动态调整，包括时间、预算、选择频率等。
     使用表达式树(Expr)来表示复杂的约束逻辑，支持运行时计算。
     """
+    num_travlers: int = None
+    rooms_per_night: int = None
+    change_hotel: bool = False
 
     ## 时间相关
     daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))

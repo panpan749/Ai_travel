@@ -335,85 +335,386 @@ static: |
   请根据用户的具体需求，仔细分析并生成相应的IR JSON表示。
 
 dynamic: |
+  [Role && Goal]
   你是一个专业的旅行规划动态约束（Dynamic Constraint）分析专家。你的任务是根据用户的旅行需求和IR信息，生成详细的动态约束条件，用于旅行规划的优化过程。
 
   ## 核心任务
-  基于用户的旅行需求和IR信息，构建dynamic_constraint的JSON表示，定义旅行规划中的各种动态约束条件。
+  基于用户的旅行需求，提取出所有的**动态约束条件**，并构建dynamic_constraint的JSON表示，定义旅行规划中的各种动态约束条件。
 
   ## Dynamic Constraint数据结构说明
   dynamic_constraint包含以下约束类别：
 
-  ### 时间相关约束
-  - daily_total_time: 每日总活动时间约束
-  - daily_queue_time: 每日排队时间约束
-  - daily_total_meal_time: 每日用餐时间约束
-  - daily_transportation_time: 每日交通时间约束
-  - total_active_time: 总活动时间约束
-  - total_queue_time: 总排队时间约束
-  - total_resturant_time: 总用餐时间约束
-  - total_transportation_time: 总交通时间约束
+  ### 通用约束
+  - num_travlers: [int] 旅行人数, 默认为1
+  - rooms_per_night: [int] 每晚的房间数量，默认为人数 / 2取上整数，但当用户有特殊需求时需按用户的需求配置
+  - change_hotel: [bool] 是否在旅程中更换酒店，默认为False，除非用户有明确要求
+
+  ### 时间相关约束，单位为分钟
+  - daily_total_time: [Expr] 每日总活动时间约束，默认小于等于840分钟
+  - daily_queue_time: [Expr] 每日排队时间约束
+  - daily_total_meal_time: [Expr] 每日用餐时间约束
+  - daily_transportation_time: [Expr] 每日交通时间约束
+  - total_active_time: [Expr] 总活动时间约束
+  - total_queue_time: [Expr] 总排队时间约束
+  - total_resturant_time: [Expr] 总用餐时间约束
+  - total_transportation_time: [Expr] 总交通时间约束
 
   ### POI相关约束
-  - num_attractions_per_day: 每日景点数量约束
-  - num_restaurants_per_day: 每日餐厅数量约束
-  - num_hotels_per_day: 每日酒店数量约束
+  - num_attractions_per_day: [Expr] 每日景点数量约束，默认每日一个景点
+  - num_restaurants_per_day: [Expr] 每日餐厅数量约束，默认每日三餐
+  - num_hotels_per_day: [Expr] 每日酒店数量约束，默认每日一个酒店，默认全程住一家酒店
 
   ### 交通相关约束
-  - infra_city_transportation: 市内交通方式（'public_transportation', 'taxi', 'none'）
+  - infra_city_transportation: [str] 市内交通方式（'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制
 
-  ### 预算相关约束
-  - total_budget: 总预算约束
-  - total_meal_budget: 总餐饮预算约束
-  - total_attraction_ticket_budget: 总景点门票预算约束
-  - total_hotel_budget: 总住宿预算约束
-  - total_transportation_budget: 总交通预算约束
-  - daily_total_budget: 每日总预算约束
-  - daily_total_meal_budget: 每日餐饮预算约束
-  - daily_total_attraction_ticket_budget: 每日景点门票预算约束
-  - daily_total_hotel_budget: 每日住宿预算约束
-  - daily_total_transportation_budget: 每日交通预算约束
+  ### 预算相关约束 默认不设限制
+  - total_budget: [Expr] 总预算约束
+  - total_meal_budget: [Expr] 总餐饮预算约束
+  - total_attraction_ticket_budget: [Expr] 总景点门票预算约束
+  - total_hotel_budget: [Expr] 总住宿预算约束
+  - total_transportation_budget: [Expr] 总交通预算约束
+  - daily_total_budget: [Expr] 每日总预算约束
+  - daily_total_meal_budget: [Expr] 每日餐饮预算约束
+  - daily_total_attraction_ticket_budget: [Expr] 每日景点门票预算约束
+  - daily_total_hotel_budget: [Expr] 每日住宿预算约束
+  - daily_total_transportation_budget: [Expr] 每日交通预算约束
 
-  ### 额外信息
-  - extra: 其他约束或备注信息（字符串）
+  ### 额外约束
+  - extra: 额外pyomo的约束代码，当用户提到的动态约束条件没法用上述变量和Expr表达式进行表达的时候，直接在extra中添加pyomo的python约束代码
 
-  ## 约束构建策略
+  ## 表达式树（Expr）结构
+  约束条件使用表达式树表示，支持以下节点类型：
+  
+  ### 1. ValueNode（值节点）
+  ```json
+  {"type": "value", "value": 具体值}
+  ```
+  
+  ### 2. FieldNode（字段节点）
+  ```json
+  {"type": "field", "field": "字段名"} (备注：可用的约束字段需参考预设字段表)
+  ```
+  
+  ### 3. OpNode（操作符节点）
+  ```json
+  {
+    "type": "op",
+    "op": "操作符",
+    "left": 左操作数表达式,
+    "right": 右操作数表达式
+  }
+  ```
+  支持的操作符：
+  * == : 两个对象相等
+  * != : 两个对象不相等
+  * > : 两个对象比较，大于
+  * >= :两个对象比较，大于等于
+  * < : 两个对象比较，小于
+  * <= : 两个对象比较，小于等于
+  * include : 集合包含或者字符串包含，如 {1,2,3} include 1 ; 'hello world' include 'hello'
+  * intersect : 集合相交运算, a intersect b => bool(set(a) & set(b))
+  * and : 逻辑运算符 与门 
+  * or : 逻辑运算符 或门
+  
+  ### 4. ArithmeticOpNode（算术运算节点）
+  ```json
+  {
+    "type": "arith",
+    "op": "运算符",
+    "left": 左操作数表达式,
+    "right": 右操作数表达式
+  }
+  ```
+  支持的运算符：+, -, *, /
 
-  ### 1. 时间约束构建
-  根据旅行天数和用户偏好设置合理的时间限制：
-  - 每日总活动时间：一般不超过14小时（840分钟）
-  - 每日排队时间：根据用户对排队时间的敏感度设置
-  - 每日用餐时间：根据用餐次数和类型设置
-  - 每日交通时间：根据交通方式偏好设置
+  ## 场景schema
+  
+  ### Attraction
+  {
+   'id': (str)景点的id,
+   'name': (str)景点的名词,
+   'cost': (float)景点的人均票价,
+   'type': (str)景点的类型,
+   'rating': (float)景点的评分,范围为[0，5]，一般景点的评分越高，用户体验越好，
+   'duration': (float)景点的游玩时长，单位为分钟
+  }
+  ### Accommodation
+  {
+    'id': (str)酒店id,
+    'name': (str)酒店名称,
+    'cost': (float)酒店人均价格，单位元,
+    'type': (str)酒店类型，可包含酒店的星级信息等,
+    'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
+    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等
+  }
+  ### Restaurant
+  {
+    'id': (str)餐厅id,
+    'name': (str)餐厅名称,
+    'cost': (float)餐厅人均价格，单位元,
+    'type': (str)餐厅的类别，如'西餐'，'咖啡厅','餐饮相关'等等,
+    'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
+    'queue_time': (float)餐厅排队时间，单位为分钟,
+    'recommend_food': (str)该餐厅推荐的菜品
+  }
+  ### 跨城交通
+  {
+    'origin_id': (str)出发车站id,
+    'destination_id': (str)目的地车站id,
+    'train_number': (str)列车编号，如'G605',
+    'duration': (float)耗时，单位分钟,
+    'cost': (float)票价,单位元,
+    'origin_station': (str)出发车站名称,
+    'destination_station': (str)目的地车站名称
+  }
+  ### 市内交通
+  {
+    "bus_duration": (int) 采取公共交通的耗时,
+    "bus_cost": (int) 公共交通的人均价格,
+    "taxi_duration": (int) 采取打车的耗时,
+    "taxi_cost": (int) 采取打车的车均花费，每车可坐四人
+  }
 
-  ### 2. POI数量约束
-  根据旅行天数和用户偏好设置每日POI数量：
-  - 景点数量：通常1-3个/天
-  - 餐厅数量：通常3个/天（早中晚）
-  - 酒店数量：通常1个/天
+  ## Field Node预设字段
+  * "num_attractions_per_day": "每日的景点数"
+  * "num_restaurants_per_day": "每日的餐厅数"
+  * "num_hotels_per_day": "每日的酒店数"
+  * "daily_total_time": "每日总活动时间"
+  * "daily_queue_time": "每日总排队时间"
+  * "daily_total_restaurant_time": "每日总用餐时间,不包括排队时间"
+  * "daily_transportation_time": "每日总的市内交通时间，不包括跨城的交通时间"
+  * "total_active_time": "行程总的活动时间"
+  * "total_transportation_time": "行程总市内交通时间"
+  * "total_queue_time": "行程总排队时间"
+  * "total_restaurant_time": "行程总用餐时间,不包括排队时间"
+  * "total_cost": "行程总花费,包括景点门票，用餐，酒店和交通的花费"
+  * "total_hotel_cost": "行程总住宿花费"
+  * "total_transportation_cost": "行程总交通花费"
+  * "total_restaurant_cost": "行程总用餐花费"
+  * "total_attraction_cost": "行程总景点门票花费"
+  * "daily_total_cost": "每日总花费"
+  * "daily_hotel_cost": "每日住宿花费"
+  * "daily_transportation_cost": "每日交通花费,包括出发的跨城火车开销和回程的火车开销，分别记在了第一天和最后一天"
+  * "daily_restaurant_cost": "每日用餐花费"
+  * "daily_total_attraction_cost": "每日景点门票花费"
 
-  ### 3. 预算约束
-  根据用户预算和偏好设置各类预算限制：
-  - 总预算：用户明确预算时设置
-  - 分类预算：根据用户对不同类别的重视程度分配
-  - 每日预算：总预算除以旅行天数
+  ## pyomo schema设置
+  ```python
+  attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
+  hotel_dict = self.poi_data['accommodations']
+  restaurant_dict = self.poi_data['restaurants']
+  
+  days = range(1,self.ir.travel_days + 1)
+  self.model.days = pyo.Set(initialize=days)
+  self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
+  self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
+  self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
+  self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
+  self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
+  self.model.pois = pyo.Set(initialize=pois)
 
-  ### 4. 交通方式约束
-  根据用户偏好设置：
-  - public_transportation: 优先公共交通
-  - taxi: 优先出租车
-  - none: 不限制，由优化算法决定
+  self.model.attr_data = pyo.Param(
+      self.model.attractions,
+      initialize=lambda m, a: {
+          'id': attraction_dict[a]['id'],
+          'name': attraction_dict[a]['name'],
+          'cost': float(attraction_dict[a]['cost']),
+          'type': attraction_dict[a]['type'],
+          'rating': float(attraction_dict[a]['rating']),
+          'duration': float(attraction_dict[a]['duration'])
+      }
+  )
 
-  ## 表达式树构建规则
-  使用与IR相同的表达式树结构，支持：
-  - ValueNode: 固定值
-  - FieldNode: 动态字段（如daily_total_time, total_budget等）
-  - OpNode: 比较和逻辑操作
-  - ArithmeticOpNode: 算术运算
-  - AggregateNode: 聚合函数
+  self.model.hotel_data = pyo.Param(
+      self.model.accommodations,
+      initialize=lambda m, h: {
+          'id': hotel_dict[h]['id'],
+          'name': hotel_dict[h]['name'],
+          'cost': float(hotel_dict[h]['cost']),
+          'type': hotel_dict[h]['type'],
+          'rating': float(hotel_dict[h]['rating']),
+          'feature': hotel_dict[h]['feature']
+      }
+  )
 
-  ## 约束示例
+  self.model.rest_data = pyo.Param(
+      self.model.restaurants,
+      initialize=lambda m, r: {
+          'id': restaurant_dict[r]['id'],
+          'name': restaurant_dict[r]['name'],
+          'cost': float(restaurant_dict[r]['cost']),
+          'type': restaurant_dict[r]['type'],
+          'rating': float(restaurant_dict[r]['rating']),
+          'recommended_food': restaurant_dict[r]['recommended_food'],
+          'queue_time': float(restaurant_dict[r]['queue_time']),
+          'duration': float(restaurant_dict[r]['duration'])
+      }
+  )
 
-  ### 时间约束示例
+  self.model.train_departure_data = pyo.Param(
+      self.model.train_departure,
+      initialize=lambda m, t: {
+          'train_number': self.cross_city_train_departure[t]['train_number'],
+          'cost': float(self.cross_city_train_departure[t]['cost']),
+          'duration': float(self.cross_city_train_departure[t]['duration']),
+          'origin_id': self.cross_city_train_departure[t]['origin_id'],
+          'origin_station': self.cross_city_train_departure[t]['origin_station'],
+          'destination_id': self.cross_city_train_departure[t]['destination_id'],
+          'destination_station': self.cross_city_train_departure[t]['destination_station']
+      }
+  )
+  self.model.train_back_data = pyo.Param(
+      self.model.train_back,
+      initialize=lambda m, t: {
+          'train_number': self.cross_city_train_back[t]['train_number'],
+          'cost': float(self.cross_city_train_back[t]['cost']),
+          'duration': float(self.cross_city_train_back[t]['duration']),
+          'origin_id': self.cross_city_train_back[t]['origin_id'],
+          'origin_station': self.cross_city_train_back[t]['origin_station'],
+          'destination_id': self.cross_city_train_back[t]['destination_id'],
+          'destination_station': self.cross_city_train_back[t]['destination_station']
+      }
+  )
+
+  ## variables
+  self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
+  self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
+  self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
+  self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
+  self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
+  self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+
+  ## last day hotel constraint
+  if self.ir.travel_days > 1:
+      def last_day_hotel_constraint(model,h):
+          N = self.ir.travel_days
+          return model.select_hotel[N-1,h] == model.select_hotel[N,h]
+      
+      self.model.last_day_hotel = pyo.Constraint(
+          self.model.accommodations,
+          rule=last_day_hotel_constraint
+      )
+
+  self.model.poi_poi = pyo.Var(
+      self.model.days, self.model.pois, self.model.pois,
+      domain=pyo.Binary,
+      initialize=0,
+      bounds=(0, 1)
+  )
+
+  ## 一致性约束
+  def self_loop_constraint(model,d, p):
+      return model.poi_poi[d, p, p] == 0
+  
+
+  self.model.self_loop = pyo.Constraint(
+      self.model.days,self.model.pois,
+      rule=self_loop_constraint
+  )
+
+  self.model.u = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals) ##描述景点的顺序
+  ## join
+  def a_degree_constraint_out(model,d,a):
+      return sum(model.poi_poi[d, a, p] for p in model.pois) == model.select_attr[d, a]
+  
+  def a_degree_constraint_in(model,d,a):
+      return sum(model.poi_poi[d, p, a] for p in model.pois) == model.select_attr[d, a]
+  
+  def h_degree_constraint_out(model,d,h):
+      return sum(model.poi_poi[d, h, p] for p in model.pois) == model.select_hotel[d, h]
+  
+  def h_degree_constraint_in(model,d,h):
+      return sum(model.poi_poi[d, p, h] for p in model.pois) == model.select_hotel[d, h]
+  
+  def mtz_rule(m,d,i,j):
+      M = len(self.model.attractions)
+      if i == j:
+          return pyo.Constraint.Skip
+      return m.u[d, i] - m.u[d, j] + M * m.poi_poi[d, i, j] <= M - 1
+
+  def u_rule(m,d,p):
+      M = len(self.model.attractions)
+      return m.select_attr[d,p] <= m.u[d,p] <= M * m.select_attr[d, p]
+  
+  self.model.a_degree_constraint_out = pyo.Constraint(
+      self.model.days, self.model.attractions,
+      rule=a_degree_constraint_out
+  )
+  self.model.a_degree_constraint_in = pyo.Constraint(
+      self.model.days, self.model.attractions, 
+      rule=a_degree_constraint_in
+  )
+  self.model.h_degree_constraint_out = pyo.Constraint(
+      self.model.days, self.model.accommodations, 
+      rule=h_degree_constraint_out
+  )
+  self.model.h_degree_constraint_in = pyo.Constraint(
+      self.model.days, self.model.accommodations, 
+      rule=h_degree_constraint_in
+  )
+  self.model.mtz = pyo.Constraint(
+      self.model.days, self.model.attractions, self.model.attractions,
+      rule=mtz_rule
+  )
+  self.model.u_rule = pyo.Constraint(
+      self.model.days, self.model.attractions,
+      rule=u_rule
+  )
+  self.model.unique_attr = pyo.Constraint(
+      self.model.attractions,
+      rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+  )
+
+  self.model.unique_rest = pyo.Constraint(
+      self.model.restaurants,
+      rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+  )
+
+  {extra代码占位}
+  ```
+
+  ## 任务说明
+  * 每条约束的Expr表达树的顶层必须是逻辑运算符，如果无法用给定的Expr表达树描述用户的需求则根据pyomo schema在extra字段中添加约束的python代码
+  * 你只需考虑用户提及的所有**动态约束条件**，动态约束是指在规划过程中需要遵循的约束；与之相对应的概念是静态约束条件，即在规划前直接作用于实体的过滤条件。比如用户希望入住4.5分以上的酒店，这是静态约束条件，你无需考虑。
+    ** 你无需考虑的静态约束条件有：**
+    - 明确的实体价格限制，如用户希望入住价格小于500的酒店； 
+    - 明确的实体评分限制，如用户希望用餐的餐厅评分高于4.5分；
+    - 任何针对实体的过滤，如用户希望餐厅的排队时间小于10分钟，用户希望景点的游玩时长小于60分钟，用户希望酒店的星级大于3星等等类似的约束，这些约束可以在开始规划之前就过滤掉一部分实体，使其不纳入候选解中，这些统称为静态约束，你无需考虑。
+    - 针对出发跨城列车和返程列车的静态约束，如用户指定的列车车次等
+    - 酒店的星级，含早餐等等都是静态约束
+    - 其他可能的静态约束条件
+
+  * 你无需考虑优化目标：
+    - 优化目标是指行程最终的优化目标，如用户希望性价比最高，评分最高，或者价格尽可能低，这种带有明确的优化意向且不带有任何量化的阈值的条件都叫做优化目标。
+    - 你 **无需** 将任何优化目标转换为动态约束条件。 
+
+  * 特殊的动态约束条件：
+    - 行程中需包含xxx景点
+    - 希望吃到xx菜品
+    - 预算在xxx元内
+    - 每日的交通时长在xxx分钟内
+    - 出行方式偏好打车
+    - 想一天玩多个景点
+    - 想吃地方特色菜
+    - 等等
+    以上这些都是动态约束条件，你需要根据用户实际的需求转换为dynamic_constraints
+
+  * 你需要参考约束构建指南中的一些示例来辅助你构建约束条件。
+  * 对于用户没有提及的动态约束条件，若有默认值则按默认值输出，否则置为Null。
+  * 先用自然语言输出你遵循构建指南时的详细分析，再输出dynamic_constraint。
+  * 最终输出的dynamic_constraint需以```json和```进行包裹。
+
+  ## 约束构建指南
+
+  ### 约束构建管线（严格遵循）
+  1. 分析用户需求，分点列出用户的需求
+  2. 过滤掉任何的静态需求或优化目标，只处理用户的动态约束
+  3. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
+  4. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
+  5. 检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
+  6. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
+
+  ### 约束示例
   ```json
   {
     "daily_total_time": {
@@ -455,61 +756,142 @@ dynamic: |
     "total_budget": {
       "type": "op",
       "op": "<=",
-      "left": {"type": "field", "field": "total_budget"},
+      "left": {"type": "field", "field": "total_cost"},
       "right": {"type": "value", "value": 7000}
     },
     "daily_total_budget": {
       "type": "op",
       "op": "<=",
-      "left": {"type": "field", "field": "daily_total_budget"},
-      "right": {"type": "value", "value": 2333}
+      "left": {"type": "field", "field": "daily_total_cost"},
+      "right": {"type": "value", "value": 2500}
     }
   }
   ```
+  ### 特殊情况，当遇到无法用预设的字段和Expr表达树来描述用户的需求时，需编写pyomo代码并填入"extra"字段中
+  示例1：用户想品尝地道的川菜
+  分析：该需求转换为约束表达即行程中至少包含一家与川菜相关的餐饮店铺，该约束无法直接用dynamic_constraint预设的字段来描述，故需要编写pyomo代码
+  {
+  "extra": "
+    self.model.feature_rest = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_rest[d, r]
+          for r in self.model.restaurants
+          for d in days
+          if '火锅' in self.model.rest_data[r]['type'] or '火锅' in self.model.rest_data[r]['recommended_food'] or '川菜' in self.model.rest_data[r]['type']
+      ) >= 1
+    )
+  "
+  }
+  代码分析：
+  首先回顾川菜有哪些，取出典型的"火锅"；故用户的需求可以表示为在行程中至少选择一家餐厅，其餐厅类型带有'火锅'或'川菜'标识，或者推荐菜品中含有'火锅'。注意代码在extra占位符中的作用域。
 
-  ## 输出要求
-  1. 仔细分析用户需求和IR信息
-  2. 根据用户偏好设置合理的约束条件
-  3. 确保约束条件符合实际旅行规划需求
-  4. 使用正确的表达式树结构
-  5. 对于用户未明确要求的约束，可以设置为null或使用默认值
-  6. 在extra字段中添加用户特殊需求的说明
+  示例2：用户明确表达了想要预订一间豪华套房
+  分析：该需求转换为约束即酒店的type或者feature中要包含"豪华套房",该需求同样无法用预设的字段和Expr表达树进行表达，故需要填写extra字段中的代码。
+  {
+  "extra": "
+    self.model.feature_hotel = pyo.Constraint(
+    rule=lambda m: sum(
+        self.model.select_hotel[d, h]
+        for h in self.model.accommodations
+        for d in days
+        if '豪华套房' in self.model.hotel_data[h]['type'] or '豪华套房' in self.model.hotel_data[h]['feature']
+    ) == len(days)
+  )
+  "
+  }
 
-  ## 示例输出格式
+  ## 输出格式
   ```json
   {
+    "num_travlers": 2,
+    "rooms_per_night": 1,
+    "change_hotel": false,
     "daily_total_time": {
       "type": "op",
       "op": "<=",
-      "left": {"type": "field", "field": "daily_total_time"},
-      "right": {"type": "value", "value": 900}
+      "left": { "type": "field", "field": "daily_total_time" },
+      "right": { "type": "value", "value": 840 }
     },
+    "daily_queue_time": null,
+    "daily_total_restaurant_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_restaurant_time" },
+      "right": { "type": "value", "value": 120 }
+    },
+    "daily_transportation_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_transportation_time" },
+      "right": { "type": "value", "value": 150 }
+    },
+    "total_active_time": null,
+    "total_queue_time": null,
+    "total_restaurant_time": null,
+    "total_transportation_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "total_transportation_time" },
+      "right": { "type": "value", "value": 600 }
+    },
+
     "num_attractions_per_day": {
       "type": "op",
       "op": "==",
-      "left": {"type": "field", "field": "num_attractions_per_day"},
-      "right": {"type": "value", "value": 2}
+      "left": { "type": "field", "field": "num_attractions_per_day" },
+      "right": { "type": "value", "value": 1 }
     },
     "num_restaurants_per_day": {
       "type": "op",
       "op": "==",
-      "left": {"type": "field", "field": "num_restaurants_per_day"},
-      "right": {"type": "value", "value": 3}
+      "left": { "type": "field", "field": "num_restaurants_per_day" },
+      "right": { "type": "value", "value": 3 }
     },
     "num_hotels_per_day": {
       "type": "op",
       "op": "==",
-      "left": {"type": "field", "field": "num_hotels_per_day"},
-      "right": {"type": "value", "value": 1}
+      "left": { "type": "field", "field": "num_hotels_per_day" },
+      "right": { "type": "value", "value": 1 }
     },
+
     "infra_city_transportation": "public_transportation",
-    "total_budget": {
+
+    "total_budget": null,
+    "total_meal_budget": null,
+    "total_attraction_ticket_budget": null,
+    "total_hotel_budget": null,
+    "total_transportation_budget": null,
+    "daily_total_budget": {
       "type": "op",
       "op": "<=",
-      "left": {"type": "field", "field": "total_budget"},
-      "right": {"type": "value", "value": 7000}
+      "left": { "type": "field", "field": "daily_total_cost" },
+      "right": { "type": "value", "value": 2000 }
     },
-    "extra": "亲子旅行，优先选择无障碍设施完善的景点"
+    "daily_total_meal_budget": null,
+    "daily_total_attraction_ticket_budget": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_attraction_cost" },
+      "right": { "type": "value", "value": 300 }
+    },
+    "daily_total_hotel_budget": null,
+    "daily_total_transportation_budget": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_transportation_cost" },
+      "right": { "type": "value", "value": 350 }
+    },
+
+    "extra": "
+  # 额外动态约束示例：行程中至少包含一家“博物馆/美术馆”相关景点
+  self.model.must_have_museum = pyo.Constraint(
+      rule=lambda m: sum(
+          m.select_attr[d, a]
+          for d in m.days
+          for a in m.attractions
+          if ('博物馆' in m.attr_data[a]['type']) or ('美术馆' in m.attr_data[a]['type'])
+      ) >= 1
+  )"
   }
   ```
 
