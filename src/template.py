@@ -484,7 +484,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         daily_total_transportation_budget=parse_expr(data.get("daily_total_transportation_budget")),
         
         # 额外信息
-        extra=data.get("extra")
+        extra=data.get("extra") or ""
     )
 
 def ir_to_json(ir: IR) -> str:
@@ -598,8 +598,7 @@ class template:
     cross_city_train_back: dict
     poi_data: dict
     intra_city_trans: dict
-    objective_function: str
-    def __init__(self,cross_city_train_departure, cross_city_train_back,poi_data,intra_city_trans,ir,objective,model = None):
+    def __init__(self,cross_city_train_departure, cross_city_train_back,poi_data,intra_city_trans,ir,model = None):
         if not model:
             self.model = pyo.ConcreteModel()
         else: self.model = model
@@ -609,7 +608,6 @@ class template:
         self.poi_data = poi_data
         self.intra_city_trans = intra_city_trans
         self.ir = ir
-        self.objective_function = objective
 
 
 
@@ -638,6 +636,46 @@ class template:
             trans_time = 0
 
         return activity_time + trans_time
+
+    def get_daily_total_attraction_time(self,day):
+        return sum(
+            self.model.select_attr[day, a] * self.model.attr_data[a]['duration']
+            for a in self.model.attractions
+        )
+    def get_daily_total_rating(self,day):
+        sum_rating = sum(
+            self.model.select_attr[day, a] * self.model.attr_data[a]['rating']
+            for a in self.model.attractions
+        ) + sum(
+            self.model.select_rest[day, r] * self.model.rest_data[r]['rating']
+            for r in self.model.restaurants
+        )
+        if day != self.ir.travel_days:
+            sum_rating += sum(
+                self.model.select_hotel[day, h] * self.model.hotel_data[h]['rating']
+                for h in self.model.accommodations
+            )
+        return sum_rating
+    
+    def get_daily_attraction_rating(self,day):
+        return sum(
+            self.model.select_attr[day, a] * self.model.attr_data[a]['rating']
+            for a in self.model.attractions
+        )
+    
+    def get_daily_restaurant_rating(self,day):
+        return sum(
+            self.model.select_rest[day, r] * self.model.rest_data[r]['rating']
+            for r in self.model.restaurants
+        )
+    
+    def get_daily_hotel_rating(self,day):
+        if day == self.ir.travel_days:
+            return 0
+        return sum(
+            self.model.select_hotel[day, h] * self.model.hotel_data[h]['rating']
+            for h in self.model.accommodations
+        )
 
     def get_daily_queue_time(self,day):
         return sum(
@@ -1135,8 +1173,12 @@ class template:
                 rule=lambda m, d: cfg.daily_total_transportation_budget.eval({'day': d})
             )
 
-        exec(cfg.extra)
-        exec(self.objective_function)
+        #############extra code##############
+
+
+
+        #############extra code##############
+
 
     def configure_solver(self):
         solver = pyo.SolverFactory('scip')
@@ -1413,7 +1455,7 @@ if __name__ == '__main__':
     # fetch 数据
     cross_city_train_departure, cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
     # 粗排: todo
-    tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,objective=objective_func,ir=ir)
+    tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
     tp.make(dc)
     # 构造template
     # make

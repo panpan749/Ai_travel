@@ -12,7 +12,7 @@ dynamic_prompt = prompt_sys.getPrompt('dynamic')
 objective_prompt = prompt_sys.getPrompt('objective')
 llm_static = LLM('deepseek-v3.1-nothinking',system_prompt=static_prompt)
 llm_dynamic = LLM('deepseek-v3.1-nothinking',system_prompt=dynamic_prompt)
-llm_objective = LLM('qwen-max',system_prompt=objective_prompt)
+llm_objective = LLM('deepseek-v3.1-nothinking',system_prompt=objective_prompt)
 
 code_config = []
 problems = {}
@@ -191,32 +191,53 @@ async def get_llm_result_parallel(problem_id):
         llm_objective.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
     ]
     results = await asyncio.gather(*tasks)
-    return extract_json_block(results[0]),extract_json_block(results[1]),results[2]
+    pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
+    matches = re.findall(pattern, results[2] ,re.DOTALL)
+    objective_result = ""
+    if matches:
+        objective_result = matches[-1].strip()
+    return extract_json_block(results[0]),extract_json_block(results[1]), objective_result
 
 
-def create_code_file(template_file_path, code_file_path,insert_code:str):
+def create_code_file(template_file_path, code_file_path,insert_code:str, extra_code:str):
     
     indent = Config.get_global_config().config['indent']
     lineno = Config.get_global_config().config['lineno']
+    extra_lineno = Config.get_global_config().config['extra_lineno']
+    extra_indent = Config.get_global_config().config['extra_indent']
 
     indent_str = ""
+    extra_indent_str = ""
+
     for line in insert_code.splitlines():
         if line.strip() == "":  # 跳过空行
             indent_str += "\n"
         else:
             indent_str += indent + line + "\n"
+    for line in extra_code.splitlines():
+        if line.strip() == "":  # 跳过空行
+            extra_indent_str += "\n"
+        else:
+            extra_indent_str += extra_indent + line + "\n"
     
     with open(template_file_path, 'r', encoding='utf-8') as in_f, open(code_file_path, 'w', encoding='utf-8') as out_f:
         for idx,line in enumerate(in_f):
             if idx == lineno - 1:
                 out_f.write(indent_str)
+            elif idx == extra_lineno -1 :
+                out_f.write(extra_indent_str)
             else:
                 out_f.write(line)
     
     print(f'成功创建代码文件:{code_file_path}')
 
 def create_code(ir_json,dynamic_json,objective_code):
-    return f"""ir = ir_from_json({ir_json}) \ndc = dynamic_constraint_from_json({dynamic_json})\nobjective_func={objective_code}\n"""
+    json_data = json.loads(dynamic_json)
+    code = json_data['extra'] + '\n' + objective_code
+    del json_data['extra']
+    dynamic = json.dumps(json_data,indent=2,ensure_ascii=False)
+    main_code = f"ir_data = \"\"\"{ir_json}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)"
+    return main_code,code
 
 
 async def main():
@@ -231,9 +252,9 @@ async def main():
     
     for problem in problems:
         static,dynamic,objective = await get_llm_result_parallel(problem)
-        code = create_code(static,dynamic,objective)
+        main_code,extra_code = create_code(static,dynamic,objective)
         code_file = f"{code_path}/id_{problem}.py"
-        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=code)
+        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
         sample = {
             "question_id": sample['question_id'],
             "question": problems[problem],
@@ -280,6 +301,57 @@ async def test_dynamic():
     except Exception as e:
         print(f'发生错误 {e} ,原始输出为\n{ret}')
 
+async def test_objective():
+    import time
+    test_problem = "我计划于2025年10月15日至19日从广州前往北京开展为期五天的高品质双人旅行，总预算为20000元，需满足以下需求：全程入住四星级及以上标准酒店，行程中须包含颐和园、恭王府博物馆等风景名胜，并安排一次正宗老北京烤鸭体验。15日早上从洛阳龙门站出发，19日晚返回洛阳。返程指定搭乘G651次列车。每日行程需兼顾热门景点与合理动线，避免过度奔波，市内交通以打车为主，整体行程注重舒适性与文化深度，尽量延长游玩时间、减少通勤和排队时间。"
+    try:
+        print('正在测试...')
+        begin = time.time()
+        ret = await llm_objective.invoke(f'用户的问题是：{test_problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
+        pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
+        matches = re.findall(pattern, ret,re.DOTALL)
+        result = ""
+        if matches:
+            result = matches[-1].strip()
+        end = time.time()
+        print(f'测试结果：\n{result}')
+        print(f'耗时：{(end-begin):2f}s')
+    except Exception as e:
+        print(f'发生错误 {e} ,原始输出为\n{ret}')
+
+async def test():
+    import time
+    begin = time.time()
+    problem_file = Config.get_global_config().config['problem_file']
+    code_path = Config.get_global_config().config['code_path']
+    template_file = Config.get_global_config().config['template_file']
+
+    with open(problem_file, 'r', encoding='utf-8') as f:
+        json_problems = json.load(f)
+        for item in json_problems:
+            problems[item['question_id']] = item['question'] 
+
+    static,dynamic,objective = await get_llm_result_parallel('1')
+    json_data = json.loads(dynamic)
+    code = json_data['extra'] + '\n' + objective
+    del json_data['extra']
+    dynamic = json.dumps(json_data,indent=2,ensure_ascii=False)
+    create_code_file(
+        template_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\src\\template.py',
+        code_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\prompts\\code\\id_6.py',
+        insert_code=f"ir_data = \"\"\"{static}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)",
+        extra_code=code
+    )
+    ir_from_json(static)
+    dynamic_constraint_from_json(dynamic)
+    print(static)
+    print(dynamic)
+    print(objective)
+    end = time.time()
+    print(f'耗时：{(end-begin):2f}s')
+
 if __name__ == '__main__':
     # asyncio.run(main())
-    asyncio.run(test_dynamic())
+    # asyncio.run(test_dynamic())
+    # asyncio.run(test_objective())
+    asyncio.run(test())

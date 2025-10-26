@@ -1,8 +1,10 @@
 api_url: https://www.dmxapi.com/v1
 api_key: 'sk-ZNX2HgY5tAKJQvxprxde2TaDuBmTTe9ONElI2MwrkCG1AXqW'
 indent: '    '
-lineno: 1386
-promblem_file: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\dataset\question.json'
+lineno: 1450
+extra_lineno: 1178
+extra_indent: '        '
+problem_file: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\dataset\question.json'
 code_path: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\prompts\code'
 template_file: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\src\template.py'
 question_prompt: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\prompts\question_prompt.json'

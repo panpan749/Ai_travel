@@ -128,6 +128,7 @@ static: |
   * 不要在输出的约束中包含任何的 **动态** 约束，例如用户希望单日的消费预算小于5000元，该约束只在规划的过程中生效，而在规划前的过滤阶段不生效。
   * 重要：你必须区分存在量词和全称量词的区别，静态约束中只考虑“全称量词”的情况，比如用户希望游玩的景点评分>=4.5,这是全称量词，应该被转换为静态约束；用户希望去"香积寺"玩，这是存在量词，即最终的攻略中存在一个name为"香积寺"的景点，而存在量词不应该被转换为静态约束。
   * 重要：任何明确指定了约束对象字段值的约束都应该被转换为静态约束，任何静态约束条件都必须是可量化的条件或者明确的约束条件，无法量化的需求或不明确的需求无需转换为静态约束条件，如用户希望游玩高评分的景点，但没有指明景点的评分的阈值，则无需转换为静态约束条件。
+  * 重要：你需要忽略的约束：
   * 在输出IR前，输出按照构建指南执行的详细分析步骤，每一个分析点都必须严格遵循事实情况，不得虚构事实。
   * 最终输出以```json和```包裹的JSON格式的IR。
 
@@ -154,51 +155,82 @@ static: |
   存在量词，无需转换为静态约束，忽略
 
   ### 住宿约束示例
-  1. 用户希望入住4.3分以上的精品酒店(连锁酒店)：
-  {"type": "op", "op": ">=", "left": {"type": "field", "field": "rating"}, "right": {"type": "value", "value": 4.3}}
-  解释：在本场景下，无需特意关注一些抠字眼的表达，如"精品"，"精品酒店"，"连锁酒店"等，因为这些表达本身就比较模糊，可以忽略, 当成常规酒店处理即可。
-
-  2. 用户希望入住四星级或更优质的酒店，且价格不能高于3000元：
+  1. 用户希望入住4.3分以上的连锁酒店：
   {
-  "type": "op", 
-  "op": "and", 
-  "left": {
-    "type": "op", 
-    "op": "<=", 
-    "left": {
-      "type": "field", 
-      "field": "cost"
-    }, 
-    "right": {
-      "type": "value", 
-      "value": 3000
-    }
-  }, 
-  "right": {
-    "type": "op", 
-    "op": "or",
+    "type":"op",
+    "op":"and",
     "left":{
-      "type": "op",   
-      "op": "include",
+      "type": "op", 
+      "op": ">=", 
       "left": {
         "type": "field", 
-        "field": "type"
-      },
+        "field": "rating"
+      }, 
       "right": {
         "type": "value", 
-        "value": "四星"
+        "value": 4.3
       }
     },
     "right":{
-      "type": "op",
-      "op": "include",
-      "left": {
-        "type": "field", 
-        "field": "type"
+      "type": "op", 
+      "op": "or",
+      "left":{
+        "type": "op",   
+        "op": "include",
+        "left": {
+          "type": "field", 
+          "field": "type"
       },
       "right": {
         "type": "value", 
-        "value": "五星"
+        "value": "连锁"
+      }
+    }
+  }
+
+
+  2. 用户希望入住四星级或更优质的酒店，且价格不能高于3000元：
+  {
+    "type": "op", 
+    "op": "and", 
+    "left": {
+      "type": "op", 
+      "op": "<=", 
+      "left": {
+        "type": "field", 
+        "field": "cost"
+      }, 
+      "right": {
+        "type": "value", 
+        "value": 3000
+      }
+    }, 
+    "right": {
+      "type": "op", 
+      "op": "or",
+      "left":{
+        "type": "op",   
+        "op": "include",
+        "left": {
+          "type": "field", 
+          "field": "type"
+        },
+        "right": {
+          "type": "value", 
+          "value": "四星"
+        }
+      },
+      "right":{
+        "type": "op",
+        "op": "include",
+        "left": {
+          "type": "field", 
+          "field": "type"
+        },
+        "right": {
+          "type": "value", 
+          "value": "五星"
+        }
       }
     }
   }
@@ -681,14 +713,14 @@ dynamic: |
     - 明确的实体评分限制，如用户希望用餐的餐厅评分高于4.5分；
     - 任何针对实体的过滤，如用户希望餐厅的排队时间小于10分钟，用户希望景点的游玩时长小于60分钟，用户希望酒店的星级大于3星等等类似的约束，这些约束可以在开始规划之前就过滤掉一部分实体，使其不纳入候选解中，这些统称为静态约束，你无需考虑。
     - 针对出发跨城列车和返程列车的静态约束，如用户指定的列车车次等
-    - 酒店的星级，含早餐等等都是静态约束
+    - 酒店的星级，含早餐，连锁酒店等等都是静态约束
     - 其他可能的静态约束条件
 
   * 你无需考虑优化目标：
     - 优化目标是指行程最终的优化目标，如用户希望性价比最高，评分最高，或者价格尽可能低，这种带有明确的优化意向且不带有任何量化的阈值的条件都叫做优化目标。
     - 你 **无需** 将任何优化目标转换为动态约束条件。 
 
-  * 特殊的动态约束条件：
+  * **重要**：特殊的动态约束条件：
     - 行程中需包含xxx景点
     - 希望吃到xx菜品
     - 预算在xxx元内
@@ -696,6 +728,7 @@ dynamic: |
     - 出行方式偏好打车
     - 想一天玩多个景点
     - 想吃地方特色菜
+    - 想玩当地的某某景点
     - 等等
     以上这些都是动态约束条件，你需要根据用户实际的需求转换为dynamic_constraints
 
@@ -898,122 +931,409 @@ dynamic: |
   请根据用户的具体需求和IR信息，仔细分析并生成相应的dynamic_constraint JSON表示。
 
 objective: |
-  你是一个专业的旅行规划目标函数生成专家。你的任务是根据用户的旅行需求和偏好，生成用于旅行规划优化的目标函数代码。
+  [Role & Goal]
+  你是一个专业的旅行规划pyomo目标函数生成专家。你的任务是根据用户的旅行需求和偏好，生成用于旅行规划优化的pyomo目标函数代码。
 
   ## 核心任务
-  基于用户的旅行需求和偏好，生成Python代码形式的目标函数，用于旅行规划的优化过程。
+  基于用户的旅行偏好，生成Python代码形式的pyomo目标函数，用于旅行规划的优化过程。
 
-  ## 目标函数构建原则
-  1. 根据用户的核心需求确定优化目标
-  2. 考虑多个维度的平衡（成本、时间、质量等）
-  3. 使用Pyomo优化库的语法
-  4. 确保目标函数可执行且符合优化逻辑
+  ## 输入协议
+  1. 上下文协议：你生成的代码将会在预设置的作用域中执行，该作用域为一个class中的类成员函数；
+  2. 用户需求：一段用户需求的自然语言文本描述，你需要从中解析出最后的优化目标；
+  3. pyomo模型schema: 即pyomo对该旅行场景的数学建模，具体参考"Schema"；
+  
+  ## 任务说明
+  1. 你需要正确区分常规约束与优化目标。约束条件是必须被满足、不可违反的硬性要求（如预算≤5000元、行程≤5天、需含素食餐馆），而优化目标是在满足这些约束后尽可能把某些指标做到更好（如总花费最小、通勤时间最短、景点多样性或评分最高，性价比最高等等）；
+  2. 你只需要考虑优化目标的代码即可，无需关注其他的约束条件。
+  3. 重要：每一个优化指标的权重只能是1或-1。
+  4. 你需要考虑生成代码的上下文和作用域，你生成的代码最后会通过python的exec函数执行。
+  5. 在生成代码时，你必须严格遵循"优化目标构建指南", 最终用```python和```包裹代码。
 
-  ## 常见优化目标
-
-  ### 1. 成本最小化
+  ## Schema
+  此章节指示了针对旅行攻略约束求解的变量定义以及各个实体的属性定义，具体见以下代码：
   ```python
-  model.obj = pyo.Objective(expr=sum(model.get_daily_total_cost(day) for day in model.days), sense=pyo.minimize)
-  ```
+  attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
+  hotel_dict = self.poi_data['accommodations']
+  restaurant_dict = self.poi_data['restaurants']
+  
+  days = range(1,self.ir.travel_days + 1)
+  self.model.days = pyo.Set(initialize=days)
+  self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
+  self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
+  self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
+  self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
+  self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
+  self.model.pois = pyo.Set(initialize=pois)
 
-  ### 2. 时间最小化
-  ```python
-  model.obj = pyo.Objective(expr=sum(model.get_daily_total_time(day) for day in model.days), sense=pyo.minimize)
-  ```
+  self.model.attr_data = pyo.Param(
+      self.model.attractions,
+      initialize=lambda m, a: {
+          'id': attraction_dict[a]['id'],
+          'name': attraction_dict[a]['name'],
+          'cost': float(attraction_dict[a]['cost']),
+          'type': attraction_dict[a]['type'],
+          'rating': float(attraction_dict[a]['rating']),
+          'duration': float(attraction_dict[a]['duration'])
+      }
+  )
 
-  ### 3. 评分最大化
-  ```python
-  model.obj = pyo.Objective(expr=sum(
-      sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-      sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-      sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-      for day in model.days
-  ), sense=pyo.maximize)
-  ```
+  self.model.hotel_data = pyo.Param(
+      self.model.accommodations,
+      initialize=lambda m, h: {
+          'id': hotel_dict[h]['id'],
+          'name': hotel_dict[h]['name'],
+          'cost': float(hotel_dict[h]['cost']),
+          'type': hotel_dict[h]['type'],
+          'rating': float(hotel_dict[h]['rating']),
+          'feature': hotel_dict[h]['feature']
+      }
+  )
 
-  ### 4. 综合优化（成本-质量平衡）
-  ```python
-  model.obj = pyo.Objective(expr=sum(
-      sum(model.get_daily_total_cost(day) for day in model.days) -
-      0.1 * sum(
-          sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-          sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-          sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-          for day in model.days
+  self.model.rest_data = pyo.Param(
+      self.model.restaurants,
+      initialize=lambda m, r: {
+          'id': restaurant_dict[r]['id'],
+          'name': restaurant_dict[r]['name'],
+          'cost': float(restaurant_dict[r]['cost']),
+          'type': restaurant_dict[r]['type'],
+          'rating': float(restaurant_dict[r]['rating']),
+          'recommended_food': restaurant_dict[r]['recommended_food'],
+          'queue_time': float(restaurant_dict[r]['queue_time']),
+          'duration': float(restaurant_dict[r]['duration'])
+      }
+  )
+
+  self.model.train_departure_data = pyo.Param(
+      self.model.train_departure,
+      initialize=lambda m, t: {
+          'train_number': self.cross_city_train_departure[t]['train_number'],
+          'cost': float(self.cross_city_train_departure[t]['cost']),
+          'duration': float(self.cross_city_train_departure[t]['duration']),
+          'origin_id': self.cross_city_train_departure[t]['origin_id'],
+          'origin_station': self.cross_city_train_departure[t]['origin_station'],
+          'destination_id': self.cross_city_train_departure[t]['destination_id'],
+          'destination_station': self.cross_city_train_departure[t]['destination_station']
+      }
+  )
+  self.model.train_back_data = pyo.Param(
+      self.model.train_back,
+      initialize=lambda m, t: {
+          'train_number': self.cross_city_train_back[t]['train_number'],
+          'cost': float(self.cross_city_train_back[t]['cost']),
+          'duration': float(self.cross_city_train_back[t]['duration']),
+          'origin_id': self.cross_city_train_back[t]['origin_id'],
+          'origin_station': self.cross_city_train_back[t]['origin_station'],
+          'destination_id': self.cross_city_train_back[t]['destination_id'],
+          'destination_station': self.cross_city_train_back[t]['destination_station']
+      }
+  )
+
+  ## variables
+  self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
+  self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
+  self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
+  self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
+  self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
+  self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+
+  ## last day hotel constraint
+  if self.ir.travel_days > 1:
+      def last_day_hotel_constraint(model,h):
+          N = self.ir.travel_days
+          return model.select_hotel[N-1,h] == model.select_hotel[N,h]
+      
+      self.model.last_day_hotel = pyo.Constraint(
+          self.model.accommodations,
+          rule=last_day_hotel_constraint
       )
-  ), sense=pyo.minimize)
+
+  self.model.poi_poi = pyo.Var(
+      self.model.days, self.model.pois, self.model.pois,
+      domain=pyo.Binary,
+      initialize=0,
+      bounds=(0, 1)
+  )
+
+  ## 一致性约束
+  def self_loop_constraint(model,d, p):
+      return model.poi_poi[d, p, p] == 0
+  
+
+  self.model.self_loop = pyo.Constraint(
+      self.model.days,self.model.pois,
+      rule=self_loop_constraint
+  )
+
+  self.model.u = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals) ##描述景点的顺序
+  ## join
+  def a_degree_constraint_out(model,d,a):
+      return sum(model.poi_poi[d, a, p] for p in model.pois) == model.select_attr[d, a]
+  
+  def a_degree_constraint_in(model,d,a):
+      return sum(model.poi_poi[d, p, a] for p in model.pois) == model.select_attr[d, a]
+  
+  def h_degree_constraint_out(model,d,h):
+      return sum(model.poi_poi[d, h, p] for p in model.pois) == model.select_hotel[d, h]
+  
+  def h_degree_constraint_in(model,d,h):
+      return sum(model.poi_poi[d, p, h] for p in model.pois) == model.select_hotel[d, h]
+  
+  def mtz_rule(m,d,i,j):
+      M = len(self.model.attractions)
+      if i == j:
+          return pyo.Constraint.Skip
+      return m.u[d, i] - m.u[d, j] + M * m.poi_poi[d, i, j] <= M - 1
+
+  def u_rule(m,d,p):
+      M = len(self.model.attractions)
+      return m.select_attr[d,p] <= m.u[d,p] <= M * m.select_attr[d, p]
+  
+  self.model.a_degree_constraint_out = pyo.Constraint(
+      self.model.days, self.model.attractions,
+      rule=a_degree_constraint_out
+  )
+  self.model.a_degree_constraint_in = pyo.Constraint(
+      self.model.days, self.model.attractions, 
+      rule=a_degree_constraint_in
+  )
+  self.model.h_degree_constraint_out = pyo.Constraint(
+      self.model.days, self.model.accommodations, 
+      rule=h_degree_constraint_out
+  )
+  self.model.h_degree_constraint_in = pyo.Constraint(
+      self.model.days, self.model.accommodations, 
+      rule=h_degree_constraint_in
+  )
+  self.model.mtz = pyo.Constraint(
+      self.model.days, self.model.attractions, self.model.attractions,
+      rule=mtz_rule
+  )
+  self.model.u_rule = pyo.Constraint(
+      self.model.days, self.model.attractions,
+      rule=u_rule
+  )
+  
+  self.model.unique_attr = pyo.Constraint(
+      self.model.attractions,
+      rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+  )
+
+  self.model.unique_rest = pyo.Constraint(
+      self.model.restaurants,
+      rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+  )
+  if not cfg.change_hotel:
+      def same_hotel_rule(m, d, h):
+          if d == 1:
+              return pyo.Constraint.Skip
+          return m.select_hotel[d, h] == m.select_hotel[d-1, h]
+      self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
+  
+  {objective function code占位符}
   ```
-
-  ## 根据用户需求选择目标函数
-
-  ### 高性价比需求
+  除了以上的pyomo建模代码，还提供了用于市内交通的查询函数：
   ```python
-  # 最小化成本，同时考虑评分
-  model.obj = pyo.Objective(expr=sum(
-      sum(model.get_daily_total_cost(day) for day in model.days) -
-      0.05 * sum(
-          sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-          sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-          sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-          for day in model.days
-      )
-  ), sense=pyo.minimize)
+  def get_trans_params(intra_city_trans, hotel_id, attr_id, param_type):
+    for key in [f"{hotel_id},{attr_id}", f"{attr_id},{hotel_id}"]:
+        if key in intra_city_trans:
+            data = intra_city_trans[key]
+            return {
+                'taxi_duration': float(data.get('taxi_duration')),
+                'taxi_cost': float(data.get('taxi_cost')),
+                'bus_duration': float(data.get('bus_duration')),
+                'bus_cost': float(data.get('bus_cost'))
+            }[param_type]
   ```
-
-  ### 高品质需求
+  在使用时可通过以下方式调用:
   ```python
-  # 最大化评分，同时控制成本
-  model.obj = pyo.Objective(expr=sum(
-      -sum(
-          sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-          sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-          sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-          for day in model.days
-      ) + 0.001 * sum(model.get_daily_total_cost(day) for day in model.days)
-  ), sense=pyo.minimize)
+  get_trans_params(self.intra_city_trans, p1, p2, 'taxi_duration') #返回p1到p2的打车耗时
   ```
 
-  ### 时间优化需求
+  ### 预设函数
+  为了方便构建目标函数，系统预设了一些函数辅助构建目标函数
+  1. **get_daily_total_time(self, day)**  
+    返回某一天的**总活动时长**（包括景点游玩时间、餐饮时间、以及若适用的城市内交通时间）。
+
+  2. **get_daily_queue_time(self, day)**  
+    返回某一天在**餐厅排队所花费的总时间**。
+
+  3. **get_daily_total_restaurant_time(self, day)**  
+    返回某一天在**餐厅用餐所花费的总时间**（不包括排队时间）。
+
+  4. **get_daily_total_transportation_time(self, day)**  
+    返回某一天的**总交通时间**（若为多日行程，则包含城市内的景点/餐厅/酒店之间的交通时间）。
+
+  5. **get_daily_total_attraction_time(self, day)**
+    返回某天**在景点游玩的总时间**。
+
+  6. **get_daily_total_cost(self, day)**  
+    返回某一天的**综合花费总额**，包括景点、餐饮、交通、住宿、高铁等费用（自动考虑人数与天数）。
+
+  7. **get_daily_total_restaurant_cost(self, day)**  
+    返回某一天的**餐饮花费总额**（已考虑人数）。
+
+  8. **get_daily_total_attraction_cost(self, day)**  
+    返回某一天的**景点门票费用总额**（已考虑人数）。
+
+  9. **get_daily_total_hotel_cost(self, day)**  
+    返回某一天的**住宿费用总额**（若为最后一天则为 0）。
+
+  10. **get_daily_total_transportation_cost(self, day)**  
+    返回某一天的**城市内交通费用总额**（如出租车或公交费用，已考虑人数与出行方式）。
+
+  11. **get_daily_total_rating(self,day)**
+    返回某一天的总评分，一般评分越高体验越好，包括了景点，餐厅和酒店的评分。
+  
+  12. **get_daily_attraction_rating(self,day)**
+    返回某天的**景点总评分**,一般评分越高体验越好。
+
+  13. **get_daily_restaurant_rating(self,day)**
+    返回某天的**餐厅总评分**,一般评分越高体验越好。
+
+  14. **get_daily_hotel_rating(self,day)**
+    返回某天的**酒店评分**,一般评分越高体验越好。
+
+  ---
+  > 说明：  
+  > - 所有函数都依赖于 `self.model` 中的变量与数据（如选择的景点、餐厅、酒店等）。  
+  > - 这些函数可在构建目标函数时直接调用，例如：
+  >   ```python
+  >   self.model.obj = Objective(
+  >       rule=lambda m: sum(self.get_daily_total_cost(d) for d in m.days),
+  >       sense=minimize
+  >   )
+  >   ```
+  > - 调用方式：在类方法中使用 `self.get_daily_total_xxx(day)` 即可。  
+
+  ### 实体属性字段解析
+  本节指示了在旅行攻略场景下所涉及的实体及相关字段信息的解释说明
+
+  #### Attraction
+  {
+   'id': (str)景点的id,
+   'name': (str)景点的名词,
+   'cost': (float)景点的人均票价,
+   'type': (str)景点的类型,
+   'rating': (float)景点的评分,范围为[0，5]，一般景点的评分越高，用户体验越好，
+   'duration': (float)景点的游玩时长，单位为分钟
+  }
+  #### Accommodation
+  {
+    'id': (str)酒店id,
+    'name': (str)酒店名称,
+    'cost': (float)酒店人均价格，单位元,
+    'type': (str)酒店类型，可包含酒店的星级信息等,
+    'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
+    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等
+  }
+  #### Restaurant
+  {
+    'id': (str)餐厅id,
+    'name': (str)餐厅名称,
+    'cost': (float)餐厅人均价格，单位元,
+    'type': (str)餐厅的类别，如'西餐'，'咖啡厅','餐饮相关'等等,
+    'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
+    'queue_time': (float)餐厅排队时间，单位为分钟,
+    'recommend_food': (str)该餐厅推荐的菜品
+  }
+  #### 跨城交通
+  {
+    'origin_id': (str)出发车站id,
+    'destination_id': (str)目的地车站id,
+    'train_number': (str)列车编号，如'G605',
+    'duration': (float)耗时，单位分钟,
+    'cost': (float)票价,单位元,
+    'origin_station': (str)出发车站名称,
+    'destination_station': (str)目的地车站名称
+  }
+  #### 市内交通
+  {
+    "bus_duration": (int) 采取公共交通的耗时,
+    "bus_cost": (int) 公共交通的人均价格,
+    "taxi_duration": (int) 采取打车的耗时,
+    "taxi_cost": (int) 采取打车的车均花费，每车可坐四人
+  }
+
+  ## 优化目标构建指南
+
+  ### 构建管线
+  1. 分析用户输入的自然语言描述，列出用户的每一条需求点
+  2. 回顾指南中的示例，过滤掉带有硬性限制的约束条件，提取出描述优化目标的自然语言
+  3. 将自然语言表述的优化目标转换为针对schema的优化目标
+  4. 回顾Schema中指示的代码的作用域和上下文，编写pyomo的代码来实现目标函数，确保目标函数符合优化逻辑，且在上下文中可以执行
+  5. 按"输出协议"的要求输出内容
+
+
+  ### 常见优化目标
+
+  #### 1. 成本最小化
   ```python
-  # 最小化总时间
-  model.obj = pyo.Objective(expr=sum(model.get_daily_total_time(day) for day in model.days), sense=pyo.minimize)
+  self.model.obj = pyo.Objective(rule=lambda m: sum(self.get_daily_total_cost(d) for d in m.days), sense=pyo.minimize)
   ```
 
-  ### 平衡优化需求
+  #### 2. 用餐排队时间最小化
   ```python
-  # 平衡成本、时间和质量
-  model.obj = pyo.Objective(expr=sum(
-      0.4 * sum(model.get_daily_total_cost(day) for day in model.days) +
-      0.3 * sum(model.get_daily_total_time(day) for day in model.days) -
-      0.3 * sum(
-          sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-          sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-          sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-          for day in model.days
-      )
-  ), sense=pyo.minimize)
+  self.model.obj = pyo.Objective(rule=lambda m: sum(self.get_daily_queue_time(d) for d in m.days), sense=pyo.minimize)
   ```
 
-  ## 输出要求
-  1. 根据用户需求选择合适的目标函数
-  2. 使用正确的Pyomo语法
-  3. 确保目标函数可执行
-  4. 考虑用户的核心偏好（成本、质量、时间等）
-  5. 提供清晰的注释说明
+  #### 3. 评分最大化,尽可能高品质旅行
+  ```python
+  self.model.obj = pyo.Objective(rule= lambda m: sum(self.get_daily_total_rating(day) for day in days), sense=pyo.maximize)
+  ```
 
-  ## 示例输出
+  ### 4. 多目标优化示例
+  用户希望控制预算同时兼顾景点品质、用餐体验与住宿舒适度，优先规划紧凑合理路线，尽量延长游玩时间、减少通勤和排队时间。
+  分析：用户希望控制预算，故优化目标1为最小化开销；用户希望兼顾景点和用餐体验以及住宿舒适度，故优化目标2为最大化总评分；用户希望延长游玩时间，即最大化景点的duration之和，此即优化目标3；用户希望减少通勤时间，故最小化通勤时间为优化目标4；用户希望减少排队时间，此即优化目标5。
+  ```python
+  def objective_rule(model):
+    total_cost = sum(self.get_daily_total_cost(day) for day in days) 
+    total_rating = sum(self.get_daily_total_rating(day) for day in days)
+    total_attraction_time = sum(self.get_daily_attraction_time(day) for day in days)
+    total_transport_time = sum(self.get_daily_total_transportation_time(day) for day in days)
+    total_queue_time = sum(self.get_daily_queue_time(day) for day in days)
+    # 最大化评分和景点停留时间，最小化交通时间，排队时间与金钱开销
+    return total_rating + total_attraction_time - total_transport_time - total_queue_time - total_cost 
+
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize)
+  ```
+
+  ### 5. 隐式优化目标
+  用户希望尽可能高性价比的旅行
+  分析：将高性价比数学建模为尽可能高评分，且尽可能减少金钱开销的多目标优化函数；
+  ```python
+  # 最小化成本，同时最大化评分
+  def objective_rule(model):
+    total_cost = sum(self.get_daily_total_cost(day) for day in days) 
+    total_rating = sum(self.get_daily_total_rating(day) for day in days)
+    return total_rating - total_cost
+
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize)
+  ```
+  ### 6. 隐式优化目标
+  用户提供了20000元的预算，希望尽可能花光预算
+  分析：该目标可转换为行程总开销与20000元越接近越好
+  ```python
+  def objective_rule(model):
+    total_cost = sum(self.get_daily_total_cost(day) for day in days)
+    return (20000 - total_cost) ** 2
+
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.minimize)
+  ```
+
+  ## 输出协议
+  1. 输出依据目标函数构建指南的详细自然语言分析
+  2. 输出以```python和```包裹的pyomo代码
+
+  ### 示例代码
   ```python
   # 高性价比旅行规划目标函数
   # 最小化总成本，同时考虑评分因素
-  model.obj = pyo.Objective(expr=sum(
-      sum(model.get_daily_total_cost(day) for day in model.days) -
-      0.05 * sum(
-          sum(model.select_attr[day, a] * model.attr_data[a]['rating'] for a in model.attractions) +
-          sum(model.select_rest[day, r] * model.rest_data[r]['rating'] for r in model.restaurants) +
-          sum(model.select_hotel[day, h] * model.hotel_data[h]['rating'] for h in model.accommodations)
-          for day in model.days
-      )
-  ), sense=pyo.minimize)
+  def objective_rule(model):
+    total_cost = sum(self.get_daily_total_cost(day) for day in days) 
+    total_rating = sum(self.get_daily_total_rating(day) for day in days)
+    return total_rating - total_cost
+
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize)
   ```
 
   请根据用户的具体需求和偏好，生成相应的目标函数代码。
