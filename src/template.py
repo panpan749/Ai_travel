@@ -1,7 +1,7 @@
+from __future__ import annotations
 import pyomo.environ as pyo 
 import requests
 from datetime import timedelta, datetime
-from __future__ import annotations
 from dataclasses import dataclass,field,asdict
 from typing import Any, Callable, Dict, Optional
 import json
@@ -385,7 +385,7 @@ class dynamic_constraint:
 
     total_active_time: Optional[Expr] = None
     total_queue_time: Optional[Expr] = None
-    total_resturant_time: Optional[Expr] = None
+    total_restaurant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
     num_attractions_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1)))
@@ -433,7 +433,8 @@ def ir_from_json(json_str: str) -> IR:
         attraction_constraints=parse_constraint(data.get("attraction_constraints")),
         accommodation_constraints=parse_constraint(data.get("accommodation_constraints")),
         restaurant_constraints=parse_constraint(data.get("restaurant_constraints")),
-        transport_constraints=parse_constraint(data.get("transport_constraints"))
+        depature_transport_constraints=parse_constraint(data.get("depature_transport_constraints")),
+        back_transport_constraints=parse_constraint(data.get("back_transport_constraints")),
     )
 
 def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
@@ -460,7 +461,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         daily_transportation_time=parse_expr(data.get("daily_transportation_time")),
         total_active_time=parse_expr(data.get("total_active_time")),
         total_queue_time=parse_expr(data.get("total_queue_time")),
-        total_resturant_time=parse_expr(data.get("total_resturant_time")),  # 保持原始拼写
+        total_restaurant_time=parse_expr(data.get("total_restaurant_time")),  # 保持原始拼写
         total_transportation_time=parse_expr(data.get("total_transportation_time")),
         
         # POI相关
@@ -498,10 +499,10 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
         # 基础字段
-        "num_travelers", "rooms_per_night", "change_hotel",
+        "num_travlers", "rooms_per_night", "change_hotel",
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
-        "total_active_time", "total_queue_time", "total_resturant_time", "total_transportation_time",
+        "total_active_time", "total_queue_time", "total_restaurant_time", "total_transportation_time",
         # POI 相关
         "num_attractions_per_day", "num_restaurants_per_day", "num_hotels_per_day",
         # 交通相关
@@ -544,38 +545,46 @@ def fetch_data(ir: IR):
     return cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans
 
 def rough_rank(cross_city_train_departure:list[dict],cross_city_train_back,poi_data,ir:IR):
+    def create_context(item,key,value):
+        return {**item,key:value}
     
     if ir.depature_transport_constraints:
         if isinstance(ir.depature_transport_constraints,OpNode):
-            cross_city_train_departure = [item for item in cross_city_train_departure if ir.depature_transport_constraints.eval(item.update({'global':cross_city_train_departure}))]
+            cross_city_train_departure = [item for item in cross_city_train_departure if ir.depature_transport_constraints.eval(create_context(item,'global',cross_city_train_departure))]
         elif isinstance(ir.depature_transport_constraints, AggregateNode) and (ir.depature_transport_constraints.func == 'min' or ir.depature_transport_constraints.func == 'max'):
             cross_city_train_departure = ir.depature_transport_constraints.eval({'global':cross_city_train_departure})
   
     if ir.back_transport_constraints:
         if isinstance(ir.back_transport_constraints,OpNode):
-            cross_city_train_back = [item for item in cross_city_train_back if ir.back_transport_constraints.eval(item.update({'global':cross_city_train_back}))]
+            cross_city_train_back = [item for item in cross_city_train_back if ir.back_transport_constraints.eval(create_context(item,'global',cross_city_train_back))]
         elif isinstance(ir.back_transport_constraints, AggregateNode) and (ir.back_transport_constraints.func == 'min' or ir.back_transport_constraints.func == 'max'):
             cross_city_train_back = ir.back_transport_constraints.eval({'global':cross_city_train_back})
 
     if ir.accommodation_constraints:
         if isinstance(ir.accommodation_constraints,OpNode):
-            poi_data['accommodations'] = [item for item in poi_data['accommodations'] if ir.accommodation_constraints.eval(item.update({'global':poi_data['accommodations']}))]
+            poi_data['accommodations'] = [item for item in poi_data['accommodations'] if ir.accommodation_constraints.eval(create_context(item,'global',poi_data['accommodations']))]
         elif isinstance(ir.accommodation_constraints, AggregateNode) and (ir.accommodation_constraints.func == 'min' or ir.accommodation_constraints.func == 'max'):
             poi_data['accommodations'] = ir.accommodation_constraints.eval({'global':poi_data['accommodations']})
     
     if ir.restaurant_constraints:
         if isinstance(ir.restaurant_constraints,OpNode):
-            poi_data['restaurants'] = [item for item in poi_data['restaurants'] if ir.restaurant_constraints.eval(item.update({'global':poi_data['restaurants']}))]
+            poi_data['restaurants'] = [item for item in poi_data['restaurants'] if ir.restaurant_constraints.eval(create_context(item,'global',poi_data['restaurants']))]
         elif isinstance(ir.restaurant_constraints, AggregateNode) and (ir.restaurant_constraints.func == 'min' or ir.restaurant_constraints.func == 'max'):
             poi_data['restaurants'] = ir.restaurant_constraints.eval({'global':poi_data['restaurants']})
     
     if ir.attraction_constraints:
         if isinstance(ir.attraction_constraints,OpNode):
-            poi_data['attractions'] = [item for item in poi_data['attractions'] if ir.attraction_constraints.eval(item.update({'global':poi_data['attractions']}))]
+            poi_data['attractions'] = [item for item in poi_data['attractions'] if ir.attraction_constraints.eval(create_context(item,'global',poi_data['attractions']))]
         elif isinstance(ir.attraction_constraints, AggregateNode) and (ir.attraction_constraints.func == 'min' or ir.attraction_constraints.func == 'max'):
             poi_data['attractions'] = ir.attraction_constraints.eval({'global':poi_data['attractions']})
 
-    return cross_city_train_departure, cross_city_train_back, poi_data
+    attraction_dict = {a['id']: a for a in poi_data['attractions']}
+    hotel_dict = {h['id']: h for h in poi_data['accommodations']}
+    restaurant_dict = {r['id']: r for r in poi_data['restaurants']}
+    train_departure_dict = {t['train_number']: t for t in cross_city_train_departure}
+    train_back_dict = {t['train_number']: t for t in cross_city_train_back}
+    pois = {'attractions': attraction_dict,'accommodations': hotel_dict,'restaurants': restaurant_dict}
+    return train_departure_dict, train_back_dict, pois
 
 def get_trans_params(intra_city_trans, hotel_id, attr_id, param_type):
     for key in [f"{hotel_id},{attr_id}", f"{attr_id},{hotel_id}"]:
@@ -587,6 +596,8 @@ def get_trans_params(intra_city_trans, hotel_id, attr_id, param_type):
                 'bus_duration': float(data.get('bus_duration')),
                 'bus_cost': float(data.get('bus_cost'))
             }[param_type]
+        
+    return 1000000 #不可达的地点距离无穷大
     
 
 class template:
@@ -791,7 +802,7 @@ class template:
     def make(self, cfg: dynamic_constraint):
         outer_self = self
         self.cfg = cfg
-        pois = [a['id'] for a in self.poi_data['attractions']] + [h['id'] for h in self.poi_data['accommodations']]
+        pois = [a_id for a_id in self.poi_data['attractions']] + [h_id for h_id in self.poi_data['accommodations']]
         def field_extract_adapter(self:FieldNode,context: dict):
             self.field = self.field.lower()
             if self.field == 'num_attractions_per_day':
@@ -840,15 +851,15 @@ class template:
                     sum_time += outer_self.get_daily_total_restaurant_time(day + 1) 
                 return sum_time
             elif self.field == 'total_cost': 
-                return sum(outer_self.get_daily_total_cost(day) for day in outer_self.ir.travel_days) 
+                return sum(outer_self.get_daily_total_cost(day) for day in range(outer_self.ir.travel_days)) 
             elif self.field == 'total_hotel_cost':
-                return sum(outer_self.get_daily_total_hotel_cost(day) for day in outer_self.ir.travel_days)
+                return sum(outer_self.get_daily_total_hotel_cost(day) for day in range(outer_self.ir.travel_days))
             elif self.field == 'total_attraction_cost':
-                return sum(outer_self.get_daily_total_attraction_cost(day) for day in outer_self.ir.travel_days)
+                return sum(outer_self.get_daily_total_attraction_cost(day) for day in range(outer_self.ir.travel_days))
             elif self.field == 'total_restaurant_cost':
-                return sum(outer_self.get_daily_total_restaurant_cost(day) for day in outer_self.ir.travel_days)
+                return sum(outer_self.get_daily_total_restaurant_cost(day) for day in range(outer_self.ir.travel_days))
             elif self.field == 'total_transportation_cost':
-                return sum(outer_self.get_daily_total_transportation_cost(day) for day in outer_self.ir.travel_days)
+                return sum(outer_self.get_daily_total_transportation_cost(day) for day in range(outer_self.ir.travel_days))
             elif self.field == 'daily_total_cost':
                 day = context.get('day', 1)
                 return outer_self.get_daily_total_cost(day)
@@ -889,7 +900,8 @@ class template:
                 'type': attraction_dict[a]['type'],
                 'rating': float(attraction_dict[a]['rating']),
                 'duration': float(attraction_dict[a]['duration'])
-            }
+            },
+            within=pyo.Any
         )
 
         self.model.hotel_data = pyo.Param(
@@ -901,7 +913,8 @@ class template:
                 'type': hotel_dict[h]['type'],
                 'rating': float(hotel_dict[h]['rating']),
                 'feature': hotel_dict[h]['feature']
-            }
+            },
+            within=pyo.Any
         )
 
         self.model.rest_data = pyo.Param(
@@ -915,7 +928,8 @@ class template:
                 'recommended_food': restaurant_dict[r]['recommended_food'],
                 'queue_time': float(restaurant_dict[r]['queue_time']),
                 'duration': float(restaurant_dict[r]['duration'])
-            }
+            },
+            within=pyo.Any
         )
 
         self.model.train_departure_data = pyo.Param(
@@ -928,7 +942,8 @@ class template:
                 'origin_station': self.cross_city_train_departure[t]['origin_station'],
                 'destination_id': self.cross_city_train_departure[t]['destination_id'],
                 'destination_station': self.cross_city_train_departure[t]['destination_station']
-            }
+            },
+            within=pyo.Any
         )
         self.model.train_back_data = pyo.Param(
             self.model.train_back,
@@ -940,7 +955,8 @@ class template:
                 'origin_station': self.cross_city_train_back[t]['origin_station'],
                 'destination_id': self.cross_city_train_back[t]['destination_id'],
                 'destination_station': self.cross_city_train_back[t]['destination_station']
-            }
+            },
+            within=pyo.Any
         )
 
         ## variables
@@ -1044,6 +1060,12 @@ class template:
                 return m.select_hotel[d, h] == m.select_hotel[d-1, h]
             self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
+        self.model.one_departure = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
+        )
+        self.model.one_back = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
+        )
         ##约束1
         self.model.attr_num = pyo.Constraint(
             self.model.days,
@@ -1103,9 +1125,9 @@ class template:
                 rule=lambda m: cfg.total_active_time.eval({})
             )
 
-        if cfg.total_resturant_time:
+        if cfg.total_restaurant_time:
             self.model.total_resturant_time_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_resturant_time.eval({})
+                rule=lambda m: cfg.total_restaurant_time.eval({})
             )
 
         if cfg.total_queue_time :
@@ -1216,7 +1238,7 @@ class template:
                 else model.select_train_back[t]
             ) > 0.9
         ]
-        return selected_train[0]
+        return selected_train[0] if selected_train else 'null'
 
 
     def get_selected_poi(self, type, day, selected_poi):
@@ -1239,21 +1261,20 @@ class template:
 
 
     def get_selected_hotel(self,day):
-        if day <= 0 or day >= self.ir.travel_days:
-            return 'null'
         model = self.model
         selected_hotel = [
             model.hotel_data[t]
             for t in model.accommodations
             if pyo.value(model.select_hotel[day,t]) > 0.9
         ]
-        return selected_hotel[0]
+        return selected_hotel[0] if selected_hotel else 'null'
 
 
     def get_time(self, selected_attr, selected_rest, selected_hotel, day):
         intra_city_trans = self.intra_city_trans
         model = self.model
         daily_time = 0
+        transport_time = 0
         for a in selected_attr:
             daily_time += a['duration']
         for r in selected_rest:
@@ -1310,12 +1331,14 @@ class template:
         model = self.model
         intra_city_trans = self.intra_city_trans
         daily_cost = 0
+        transport_cost = 0
         peoples = self.ir.peoples
         for a in selected_attr:
-            daily_cost += peoples * selected_attr['cost']
+            daily_cost += peoples * a['cost']
         travel_days = self.ir.travel_days
         for r in selected_rest:
-            daily_cost += peoples * r['cost']
+            if r:
+                daily_cost += peoples * r['cost']
         if self.ir.travel_days > 1 and len(selected_attr) > 0:
             order = sorted(selected_attr, key=lambda a: model.u[day,a['id']].value)
             if pyo.value(model.trans_mode[day]) > 0.9:
@@ -1385,8 +1408,10 @@ class template:
             select_at += [a['id'] for a in attr_details]
             rest_details = []
             rest_details = self.get_selected_poi('restaurant', day, select_re)
+            rest_details = (rest_details + [None, None, None])[:3]
             for r in rest_details:
-                select_re.append(r['id'])
+                if r:
+                    select_re.append(r['id'])
 
             meal_allocation = {
                 'breakfast': rest_details[0],

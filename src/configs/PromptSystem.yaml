@@ -388,7 +388,7 @@ dynamic: |
   - daily_transportation_time: [Expr] 每日交通时间约束
   - total_active_time: [Expr] 总活动时间约束
   - total_queue_time: [Expr] 总排队时间约束
-  - total_resturant_time: [Expr] 总用餐时间约束
+  - total_restaurant_time: [Expr] 总用餐时间约束
   - total_transportation_time: [Expr] 总交通时间约束
 
   ### POI相关约束
@@ -412,7 +412,7 @@ dynamic: |
   - daily_total_transportation_budget: [Expr] 每日交通预算约束
 
   ### 额外约束
-  - extra: 额外pyomo的约束代码，当用户提到的动态约束条件没法用上述变量和Expr表达式进行表达的时候，直接在extra中添加pyomo的python约束代码
+  - extra: 额外pyomo的约束代码，当用户提到的动态约束条件无法用上述变量和Expr表达式进行表达的时候，直接在extra中添加pyomo的python约束代码
 
   ## 表达式树（Expr）结构
   约束条件使用表达式树表示，支持以下节点类型：
@@ -744,7 +744,7 @@ dynamic: |
   2. 过滤掉任何的静态需求或优化目标，只处理用户的动态约束
   3. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
   4. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  5. 检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
+  5. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
   6. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
 
   ### 约束示例
@@ -800,7 +800,7 @@ dynamic: |
     }
   }
   ```
-  ### 特殊情况，当遇到无法用预设的字段和Expr表达树来描述用户的需求时，需编写pyomo代码并填入"extra"字段中
+  ### 注意！！特殊情况，当遇到无法用预设的字段和Expr表达树来描述用户的需求时，需编写pyomo代码并填入"extra"字段中！！！
   示例1：用户想品尝地道的川菜
   分析：该需求转换为约束表达即行程中至少包含一家与川菜相关的餐饮店铺，该约束无法直接用dynamic_constraint预设的字段来描述，故需要编写pyomo代码
   {
@@ -916,7 +916,7 @@ dynamic: |
     },
 
     "extra": "
-  # 额外动态约束示例：行程中至少包含一家“博物馆/美术馆”相关景点
+  # 额外动态约束示例：行程中至少包含一家“博物馆/美术馆”相关景点(想去某某景点，想吃某某菜品，等等可以参考指南)
   self.model.must_have_museum = pyo.Constraint(
       rule=lambda m: sum(
           m.select_attr[d, a]

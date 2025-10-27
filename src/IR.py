@@ -381,7 +381,7 @@ class dynamic_constraint:
 
     total_active_time: Optional[Expr] = None
     total_queue_time: Optional[Expr] = None
-    total_resturant_time: Optional[Expr] = None
+    total_restaurant_time: Optional[Expr] = None
     total_transportation_time: Optional[Expr] = None
     ## POI相关
     num_attractions_per_day: Optional[Expr] = field(default_factory= lambda: OpNode('==',FieldNode('num_attractions_per_day'),ValueNode(1)))

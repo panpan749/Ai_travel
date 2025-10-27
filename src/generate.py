@@ -5,6 +5,7 @@ from IR import *
 from dataclasses import asdict
 import json,re
 from base import Config
+import os
 
 prompt_sys = PromptSystem.getSingleton() 
 static_prompt = prompt_sys.getPrompt('static')
@@ -66,7 +67,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         daily_transportation_time=parse_expr(data.get("daily_transportation_time")),
         total_active_time=parse_expr(data.get("total_active_time")),
         total_queue_time=parse_expr(data.get("total_queue_time")),
-        total_resturant_time=parse_expr(data.get("total_resturant_time")),  # 保持原始拼写
+        total_restaurant_time=parse_expr(data.get("total_restaurant_time")),  # 保持原始拼写
         total_transportation_time=parse_expr(data.get("total_transportation_time")),
         
         # POI相关
@@ -104,10 +105,10 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
         # 基础字段
-        "num_travelers", "rooms_per_night", "change_hotel",
+        "num_travlers", "rooms_per_night", "change_hotel",
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
-        "total_active_time", "total_queue_time", "total_resturant_time", "total_transportation_time",
+        "total_active_time", "total_queue_time", "total_restaurant_time", "total_transportation_time",
         # POI 相关
         "num_attractions_per_day", "num_restaurants_per_day", "num_hotels_per_day",
         # 交通相关
@@ -183,7 +184,7 @@ def extract_json_block(text: str) -> Optional[str]:
             return None
         
 
-async def get_llm_result_parallel(problem_id):
+async def get_llm_result_parallel(problem_id,write_log = False):
     problem = problems.get(str(problem_id))
     tasks = [
         llm_static.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。'),
@@ -191,6 +192,10 @@ async def get_llm_result_parallel(problem_id):
         llm_objective.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
     ]
     results = await asyncio.gather(*tasks)
+    if write_log:
+        log_path = os.path.join(Config.get_global_config().config['log_path'], f'{problem_id}.log')
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"{results[0]}\n\n\n\n{results[1]}\n\n\n\n{results[2]}")
     pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
     matches = re.findall(pattern, results[2] ,re.DOTALL)
     objective_result = ""
@@ -229,7 +234,7 @@ def create_code_file(template_file_path, code_file_path,insert_code:str, extra_c
             else:
                 out_f.write(line)
     
-    print(f'成功创建代码文件:{code_file_path}')
+    # print(f'成功创建代码文件:{code_file_path}')
 
 def create_code(ir_json,dynamic_json,objective_code):
     json_data = json.loads(dynamic_json)
@@ -241,6 +246,10 @@ def create_code(ir_json,dynamic_json,objective_code):
 
 
 async def main():
+    import time
+    from tqdm import tqdm
+    print('=======start=======')
+    begin = time.time()
     problem_file = Config.get_global_config().config['problem_file']
     code_path = Config.get_global_config().config['code_path']
     template_file = Config.get_global_config().config['template_file']
@@ -249,14 +258,14 @@ async def main():
         json_problems = json.load(f)
         for item in json_problems:
             problems[item['question_id']] = item['question']
-    
-    for problem in problems:
-        static,dynamic,objective = await get_llm_result_parallel(problem)
+    print(f'初始化完成，成功导入数据集: {len(problems)}条')
+    for problem in tqdm(problems):
+        static,dynamic,objective = await get_llm_result_parallel(problem,write_log=True)
         main_code,extra_code = create_code(static,dynamic,objective)
         code_file = f"{code_path}/id_{problem}.py"
         create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
         sample = {
-            "question_id": sample['question_id'],
+            "question_id": problem,
             "question": problems[problem],
             "code_path": f'code/id_{problem}.py'
         }
@@ -266,8 +275,9 @@ async def main():
 
     with open(dump_file, 'w', encoding='utf-8') as f:
         json.dump(code_config,f,indent=2,ensure_ascii=False)
-
-    print('执行完成')
+    end = time.time()
+    print('=======end=======')
+    print(f'耗时:{end-begin}秒')
 
 async def test_static():
     import time
@@ -354,4 +364,4 @@ if __name__ == '__main__':
     # asyncio.run(main())
     # asyncio.run(test_dynamic())
     # asyncio.run(test_objective())
-    asyncio.run(test())
+    asyncio.run(main())
