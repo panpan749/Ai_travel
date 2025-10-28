@@ -195,7 +195,13 @@ async def get_llm_result_parallel(problem_id,write_log = False):
     if write_log:
         log_path = os.path.join(Config.get_global_config().config['log_path'], f'{problem_id}.log')
         with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"{results[0]}\n\n\n\n{results[1]}\n\n\n\n{results[2]}")
+            f.write('#' * 50 + 'static result' + '#' * 50 + '\n\n')
+            f.write(f"{results[0]}\n\n")
+            f.write('#' * 50 + 'dynamic result' + '#' * 50 + '\n\n')
+            f.write(f"{results[1]}\n\n")
+            f.write('#' * 50 + 'objective result' + '#' * 50 + '\n\n')
+            f.write(f"{results[2]}\n\n")
+
     pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
     matches = re.findall(pattern, results[2] ,re.DOTALL)
     objective_result = ""
@@ -236,12 +242,15 @@ def create_code_file(template_file_path, code_file_path,insert_code:str, extra_c
     
     # print(f'成功创建代码文件:{code_file_path}')
 
-def create_code(ir_json,dynamic_json,objective_code):
+def create_code(ir_json,dynamic_json,objective_code,user_problem = ""):
     json_data = json.loads(dynamic_json)
-    code = json_data['extra'] + '\n' + objective_code
+    if json_data['extra']:
+        code = json_data['extra'] + '\n' + objective_code
+    else:
+        code = objective_code
     del json_data['extra']
     dynamic = json.dumps(json_data,indent=2,ensure_ascii=False)
-    main_code = f"ir_data = \"\"\"{ir_json}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)"
+    main_code = f"ir_data = \"\"\"{ir_json}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)\nuser_question = \"\"\"{user_problem}\"\"\""
     return main_code,code
 
 
@@ -254,22 +263,28 @@ async def main():
     code_path = Config.get_global_config().config['code_path']
     template_file = Config.get_global_config().config['template_file']
 
+    break_point = 89
     with open(problem_file, 'r', encoding='utf-8') as f:
         json_problems = json.load(f)
         for item in json_problems:
             problems[item['question_id']] = item['question']
     print(f'初始化完成，成功导入数据集: {len(problems)}条')
     for problem in tqdm(problems):
-        static,dynamic,objective = await get_llm_result_parallel(problem,write_log=True)
-        main_code,extra_code = create_code(static,dynamic,objective)
-        code_file = f"{code_path}/id_{problem}.py"
-        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
         sample = {
             "question_id": problem,
             "question": problems[problem],
             "code_path": f'code/id_{problem}.py'
         }
         code_config.append(sample)
+        if break_point > 0 and int(problem) <= break_point:
+            time.sleep(0.1)
+            continue
+            
+        static,dynamic,objective = await get_llm_result_parallel(problem,write_log=True)
+        main_code,extra_code = create_code(static,dynamic,objective,user_problem=problems[problem])
+        code_file = f"{code_path}/id_{problem}.py"
+        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
+
     
     dump_file = Config.get_global_config().config['question_prompt']
 

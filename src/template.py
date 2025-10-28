@@ -133,8 +133,8 @@ class AggregateNode(Expr):
 
     func: str
     field: str ##list 字段提取
-    filter: Optional[Expr] = None
     return_field: str ##返回字段，仅在min和max中生效
+    filter: Optional[Expr] = None
 
     def eval(self, context: Dict[str, Any]) -> Any:
         """计算聚合表达式的值。
@@ -530,19 +530,25 @@ def fetch_data(ir: IR):
     origin_city = ir.original_city
     destination_city = ir.destinate_city 
     url = "http://localhost:12457"
-    cross_city_train_departure = requests.get(
-        url + f"/cross-city-transport?origin_city={origin_city}&destination_city={destination_city}").json()
-    cross_city_train_back = requests.get(
-        url + f"/cross-city-transport?origin_city={destination_city}&destination_city={origin_city}").json()
+    max_retry = 3
+    while max_retry > 0:
+        try:
+            cross_city_train_departure = requests.get(
+                url + f"/cross-city-transport?origin_city={origin_city}&destination_city={destination_city}").json()
+            cross_city_train_back = requests.get(
+                url + f"/cross-city-transport?origin_city={destination_city}&destination_city={origin_city}").json()
 
-    poi_data = {
-        'attractions': requests.get(url + f"/attractions/{destination_city}").json(),
-        'accommodations': requests.get(url + f"/accommodations/{destination_city}").json(),
-        'restaurants': requests.get(url + f"/restaurants/{destination_city}").json()
-    }
+            poi_data = {
+                'attractions': requests.get(url + f"/attractions/{destination_city}").json(),
+                'accommodations': requests.get(url + f"/accommodations/{destination_city}").json(),
+                'restaurants': requests.get(url + f"/restaurants/{destination_city}").json()
+            }
 
-    intra_city_trans = requests.get(url + f"/intra-city-transport/{destination_city}").json()
-    return cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans
+            intra_city_trans = requests.get(url + f"/intra-city-transport/{destination_city}").json()
+            return cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans
+        except:
+            max_retry -= 1
+    return [],[],{'attractions':[],'accommodations':[],'restaurants':[]},{}
 
 def rough_rank(cross_city_train_departure:list[dict],cross_city_train_back,poi_data,ir:IR):
     def create_context(item,key,value):
@@ -1195,12 +1201,13 @@ class template:
                 rule=lambda m, d: cfg.daily_total_transportation_budget.eval({'day': d})
             )
 
+        try:
         #############extra code##############
 
 
 
         #############extra code##############
-
+        except: pass
 
     def configure_solver(self):
         solver = pyo.SolverFactory('scip')
@@ -1470,19 +1477,104 @@ def get_solution(omo:template):
 #Todo 目标函数 + LLM交互文件
 
 if __name__ == '__main__':
+
     ###########################IR && dynamic_constraint#############################
 
 
 
     ##########################################################
 
-    cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
-    # fetch 数据
-    cross_city_train_departure, cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
-    # 粗排: todo
-    tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
-    tp.make(dc)
-    # 构造template
-    # make
-    get_solution(tp)
-    # get_solution
+    try:
+        cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
+        # fetch 数据
+        cross_city_train_departure, cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
+        # 粗排: todo
+        tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
+        tp.make(dc)
+        # 构造template
+        # make
+        get_solution(tp)
+        # get_solution
+    except Exception as e:
+        def generate_date_range(start_date, date_format="%Y年%m月%d日"):
+            start = datetime.strptime(start_date, date_format)
+            days = ir.travel_days
+            return [
+                (start + timedelta(days=i)).strftime(date_format)
+                for i in range(days)
+            ]
+        date = generate_date_range(ir.start_date)
+        departure_trains = back_trains = 'null'
+        if len(cross_city_train_departure) > 0:
+            departure_trains = cross_city_train_departure.keys()[0]
+        if len(cross_city_train_back) > 0:
+            back_trains = cross_city_train_back.keys()[0]
+        daily_plans = []
+        selected_hotel = 'null'
+        attr_details = 'null'
+        meal_allocation = {
+            'breakfast': 'null',
+            'lunch': 'null',
+            'dinner': 'null'
+        }
+        for day in range(1, ir.travel_days + 1):
+            
+            if len(poi_data['accommodations']) > day:
+                key = poi_data['accommodations'].keys()[day - 1]
+                selected_hotel = poi_data['accommodations'][key]
+            
+            if len(poi_data['attractions']) > day:
+                key = poi_data['attractions'].keys()[day - 1]
+                attr_details = poi_data['attractions'][key]
+
+            if len(poi_data['restaurants']) > day * 3:
+                key = poi_data['restaurants'].keys()[(day-1) * 3 ]
+                meal_allocation = { #todo
+                    'breakfast': poi_data['restaurants'][key],
+                    'lunch': poi_data['restaurants'][key + 1],
+                    'dinner': poi_data['restaurants'][key + 2]
+                }
+            elif meal_allocation['breakfast'] == 'null' and len(poi_data['restaurants']) > 0:
+                key_1 = poi_data['restaurants'].keys()[0]
+                key_2 = poi_data['restaurants'].keys()[1] if len(poi_data['restaurants'] > 1) else None
+                meal_allocation = {
+                    'breakfast': poi_data['restaurants'][key_1],
+                    'lunch': poi_data['restaurants'][key_2] if key_2 else 'null',
+                    'dinner': 'null'
+                }
+            trans_mode = 'bus' if '公共交通' in user_question or '公交' in user_question or '地铁' in user_question else 'taxi'
+            day_plan = {
+                "date": f"{date[day - 1]}",
+                "cost": 0,
+                "cost_time": 0,
+                "hotel": selected_hotel if day != ir.travel_days else "null",
+                "attractions": attr_details,
+                "restaurants": [
+                    {
+                        "type": meal_type,
+                        "restaurant": rest if rest else None
+                    } for meal_type, rest in meal_allocation.items()
+                ],
+                "transport": {
+                    "mode": trans_mode,
+                    "cost": 0,
+                    "duration": 0
+                }
+            }
+            daily_plans.append(day_plan)
+
+        plan = {
+            "budget": ir.budgets,
+            "peoples": ir.peoples,
+            "travel_days": ir.travel_days,
+            "origin_city": ir.original_city,
+            "destination_city": ir.destinate_city,
+            "start_date": ir.start_date,
+            "end_date": date[-1],
+            "daily_plans": daily_plans,
+            "departure_trains": departure_trains,
+            "back_trains": back_trains,
+            "total_cost": 0,
+            "objective_value": 0
+        }
+        print(f"```generated_plan\n{plan}\n```")
