@@ -1,9 +1,11 @@
 from __future__ import annotations
 import pyomo.environ as pyo 
+from pyomo.gdp import Disjunct, Disjunction
+from pyomo.core import TransformationFactory
 import requests
 from datetime import timedelta, datetime
 from dataclasses import dataclass,field,asdict
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional,List
 import json
 
 
@@ -73,7 +75,7 @@ class Expr:
                 func=data["func"],
                 return_field=data["return_field"],
                 field=data["field"],
-                filter=Expr.from_dict(data["filter"])
+                filter=Expr.from_dict(data["filter"]) if data.get("filter") else None
             )            
         raise ValueError(f"Unknown expr type: {node_type}")
 
@@ -163,20 +165,24 @@ class AggregateNode(Expr):
             ]
         
         if self.func == "sum":
+            if values == []: return 0
             return sum(values)
         if self.func == "min":
+            if values == []: return []
             min_item = min(values, key=lambda x: x[self.field])
             if self.return_field == '*':
                 return [item for item in values if item[self.field] == min_item[self.field]]
             elif isinstance(self.return_field,str):
                 return [item[self.return_field] for item in values if item[self.field] == min_item[self.field]]
         if self.func == "max":
+            if values == []: return []
             max_item = max(values, key=lambda x: x[self.field])
             if self.return_field == '*':
                 return [item for item in values if item[self.field] == max_item[self.field]]
             elif isinstance(self.return_field,str):
                 return [item[self.return_field] for item in values if item[self.field] == max_item[self.field]]
         if self.func == "count":
+            if values == []: return 0
             return len(values)
         raise ValueError(f"Unknown aggregate func {self.func}")
 
@@ -339,7 +345,7 @@ class IR:
     包含了基本的旅行信息以及各个类别的约束条件。
     
     Attributes:
-        start_date: 旅行开始日期，格式如 "2025-06-10"
+        start_date: 旅行开始日期，格式如 "2025年6月10日"
         peoples: 旅行人数
         travel_days: 旅行天数
         original_city: 出发城市
@@ -361,7 +367,7 @@ class IR:
     attraction_constraints: Optional[Expr] = None  # 景点约束
     accommodation_constraints: Optional[Expr] = None  # 住宿约束
     restaurant_constraints: Optional[Expr] = None  # 餐厅约束
-    depature_transport_constraints: Optional[Expr] = None  # 交通约束
+    departure_transport_constraints: Optional[Expr] = None  # 交通约束
     back_transport_constraints: Optional[Expr] = None
 
 
@@ -379,7 +385,7 @@ class dynamic_constraint:
     ## 时间相关
     daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))
     daily_queue_time: Optional[Expr] = None
-    daily_total_meal_time: Optional[Expr] = None
+    daily_total_restaurant_time: Optional[Expr] = None
 
     daily_transportation_time: Optional[Expr] = None
 
@@ -433,7 +439,7 @@ def ir_from_json(json_str: str) -> IR:
         attraction_constraints=parse_constraint(data.get("attraction_constraints")),
         accommodation_constraints=parse_constraint(data.get("accommodation_constraints")),
         restaurant_constraints=parse_constraint(data.get("restaurant_constraints")),
-        depature_transport_constraints=parse_constraint(data.get("depature_transport_constraints")),
+        departure_transport_constraints=parse_constraint(data.get("departure_transport_constraints")),
         back_transport_constraints=parse_constraint(data.get("back_transport_constraints")),
     )
 
@@ -457,7 +463,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
-        daily_total_meal_time=parse_expr(data.get("daily_total_meal_time")),
+        daily_total_restaurant_time=parse_expr(data.get("daily_total_restaurant_time")),
         daily_transportation_time=parse_expr(data.get("daily_transportation_time")),
         total_active_time=parse_expr(data.get("total_active_time")),
         total_queue_time=parse_expr(data.get("total_queue_time")),
@@ -501,7 +507,7 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
         # 基础字段
         "num_travlers", "rooms_per_night", "change_hotel",
         # 时间相关
-        "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
+        "daily_total_time", "daily_queue_time", "daily_total_restaurant_time", "daily_transportation_time",
         "total_active_time", "total_queue_time", "total_restaurant_time", "total_transportation_time",
         # POI 相关
         "num_attractions_per_day", "num_restaurants_per_day", "num_hotels_per_day",
@@ -526,6 +532,7 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
             result[field] = value
 
     return json.dumps(result, ensure_ascii=False, indent=2)
+
 def fetch_data(ir: IR):
     origin_city = ir.original_city
     destination_city = ir.destinate_city 
@@ -554,11 +561,11 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_back,poi_d
     def create_context(item,key,value):
         return {**item,key:value}
     
-    if ir.depature_transport_constraints:
-        if isinstance(ir.depature_transport_constraints,OpNode):
-            cross_city_train_departure = [item for item in cross_city_train_departure if ir.depature_transport_constraints.eval(create_context(item,'global',cross_city_train_departure))]
-        elif isinstance(ir.depature_transport_constraints, AggregateNode) and (ir.depature_transport_constraints.func == 'min' or ir.depature_transport_constraints.func == 'max'):
-            cross_city_train_departure = ir.depature_transport_constraints.eval({'global':cross_city_train_departure})
+    if ir.departure_transport_constraints:
+        if isinstance(ir.departure_transport_constraints,OpNode):
+            cross_city_train_departure = [item for item in cross_city_train_departure if ir.departure_transport_constraints.eval(create_context(item,'global',cross_city_train_departure))]
+        elif isinstance(ir.departure_transport_constraints, AggregateNode) and (ir.departure_transport_constraints.func == 'min' or ir.departure_transport_constraints.func == 'max'):
+            cross_city_train_departure = ir.departure_transport_constraints.eval({'global':cross_city_train_departure})
   
     if ir.back_transport_constraints:
         if isinstance(ir.back_transport_constraints,OpNode):
@@ -615,6 +622,8 @@ class template:
     cross_city_train_back: dict
     poi_data: dict
     intra_city_trans: dict
+    use_disj: bool
+    _cid: int ##用于标识
     def __init__(self,cross_city_train_departure, cross_city_train_back,poi_data,intra_city_trans,ir,model = None):
         if not model:
             self.model = pyo.ConcreteModel()
@@ -625,6 +634,8 @@ class template:
         self.poi_data = poi_data
         self.intra_city_trans = intra_city_trans
         self.ir = ir
+        self._cid = 0
+        self.use_disj = False
 
 
 
@@ -805,84 +816,278 @@ class template:
             for p2 in self.model.pois
         )
         return transport_cost
+    def field_extract_adapter(self, field:str, context: dict):
+        field = field.lower()
+        current_indices:dict = context.get('current_indices', {})
+        if field == 'num_attractions_per_day':
+            day = current_indices.get('day', 1)
+            return sum(self.model.select_attr[day,a] for a in self.model.attractions)
+        elif field == 'num_restaurants_per_day':
+            day = current_indices.get('day', 1)
+            return sum(self.model.select_rest[day,r] for r in self.model.restaurants)
+        elif field == 'num_hotels_per_day':
+            day = current_indices.get('day', 1)
+            return sum(self.model.select_hotel[day,h] for h in self.model.accommodations)
+        elif field == 'daily_total_time':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_time(day)
+                
+        elif field == 'daily_queue_time':
+            day = current_indices.get('day', 1)
+            return self.get_daily_queue_time(day)
+        
+        elif field == 'daily_total_restaurant_time':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_restaurant_time(day)
+        
+        elif field == 'daily_transportation_time':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_transportation_time(day)
+        
+        elif field == 'total_active_time':
+            sum_time = 0
+            for day in range(self.ir.travel_days):
+                sum_time += self.get_daily_total_time(day + 1) 
+            return sum_time  
+        elif field == 'total_transportation_time':
+            sum_time = 0
+            for day in range(self.ir.travel_days):
+                sum_time += self.get_daily_total_transportation_time(day + 1) 
+            return sum_time
+        elif field == 'total_queue_time':
+            sum_time = 0
+            for day in range(self.ir.travel_days):
+                sum_time += self.get_daily_queue_time(day + 1) 
+            return sum_time
+        elif field == 'total_restaurant_time':
+            sum_time = 0
+            for day in range(self.ir.travel_days):
+                sum_time += self.get_daily_total_restaurant_time(day + 1) 
+            return sum_time
+        elif field == 'total_cost': 
+            return sum(self.get_daily_total_cost(day + 1) for day in range(self.ir.travel_days)) 
+        elif field == 'total_hotel_cost':
+            return sum(self.get_daily_total_hotel_cost(day + 1) for day in range(self.ir.travel_days))
+        elif field == 'total_attraction_cost':
+            return sum(self.get_daily_total_attraction_cost(day + 1) for day in range(self.ir.travel_days))
+        elif field == 'total_restaurant_cost':
+            return sum(self.get_daily_total_restaurant_cost(day + 1) for day in range(self.ir.travel_days))
+        elif field == 'total_transportation_cost':
+            return sum(self.get_daily_total_transportation_cost(day + 1) for day in range(self.ir.travel_days))
+        elif field == 'daily_total_cost':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_cost(day)
+        elif field == 'daily_total_attraction_cost':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_attraction_cost(day)
+        elif field == 'daily_total_restaurant_cost':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_restaurant_cost(day)
+        elif field == 'daily_total_hotel_cost':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_hotel_cost(day)
+        elif field == 'daily_total_transportation_cost':
+            day = current_indices.get('day', 1)
+            return self.get_daily_total_transportation_cost(day)
+        else: return 0
+    def ast_to_pyomo_constraints(
+        self,
+        model: pyo.ConcreteModel,
+        ast_node: Expr,
+        context: Dict[str, Any],
+        constraint_prefix: str = "constraint",
+        constraint_indices: Optional[List[pyo.Set]] = None  # 多索引集合列表
+    ) -> List[pyo.Constraint]:
+        try:
+            constraints = []
+            if model is None:
+                model = self.model
+
+            # 处理OpNode的and/or逻辑（核心完善部分）
+            if isinstance(ast_node, OpNode):
+                # 1. 处理AND逻辑：递归拆分左右子节点，为每个子节点生成对应约束
+                if ast_node.op == "and":
+                    # 左子节点约束（如cond1）
+                    left_constraints = self.ast_to_pyomo_constraints(
+                        ast_node=ast_node.left,
+                        model=model,
+                        context=context.copy(),  # 复制上下文，避免左右子节点互相干扰
+                        constraint_prefix=f"{constraint_prefix}_and_left",
+                        constraint_indices=constraint_indices  # 继承父节点的多索引
+                    )
+                    # 右子节点约束（如cond2）
+                    right_constraints = self.ast_to_pyomo_constraints(
+                        ast_node=ast_node.right,
+                        model=model,
+                        context=context.copy(),
+                        constraint_prefix=f"{constraint_prefix}_and_right",
+                        constraint_indices=constraint_indices  # 继承父节点的多索引
+                    )
+                    constraints.extend(left_constraints + right_constraints)
+                    return constraints  # 直接返回拆分后的约束列表
+
+                # 2. 处理OR逻辑：在当前索引下合并为一个约束（用|连接）
+                elif ast_node.op == "or":
+                    self._cid += 1
+                    disjunct_id = self._cid
+                    self.use_disj = True
+                    if not constraint_indices:
+                        dL = Disjunct()
+                        dR = Disjunct()
+                        setattr(model, f"disjunct_{self._cid}_L", dL)
+                        setattr(model, f"disjunct_{self._cid}_R", dR)
+                        # 无索引场景
+                        left_constraints = self.ast_to_pyomo_constraints(
+                            ast_node=ast_node.left,
+                            model=dL,
+                            context=context.copy(),  # 复制上下文，避免左右子节点互相干扰
+                            constraint_prefix=f"{constraint_prefix}_or_left",
+                            constraint_indices=constraint_indices  # 继承父节点的多索引
+                        )
+                        # 右子节点约束（如cond2）
+                        right_constraints = self.ast_to_pyomo_constraints(
+                            ast_node=ast_node.right,
+                            model=dR,
+                            context=context.copy(),
+                            constraint_prefix=f"{constraint_prefix}_or_right",
+                            constraint_indices=constraint_indices  # 继承父节点的多索引
+                        )
+                        constraints.extend(left_constraints + right_constraints)
+                        
+                        # 无索引：全局一个析取集合
+                        setattr(model, f"disjunction_{disjunct_id}", 
+                                Disjunction(expr=[dL, dR]))
+                    else:
+                        index_sets = constraint_indices  # e.g. [self.model.days]
+                        # 正确：创建“带索引”的 Disjunct / Disjunction
+                                                # 用 rule 在每个索引下填充各自的子约束
+                        def _fill_left(disj, *idx):
+                            ctx = context.copy()
+                            idx_names = ctx.get("index_names", [f"index_{i}" for i in range(len(idx))])
+                            ctx["current_indices"] = dict(zip(idx_names, idx))
+                            self.ast_to_pyomo_constraints(model=disj, ast_node=ast_node.left, context=ctx, constraint_prefix=f"{constraint_prefix}_or_left", constraint_indices=None)
+                            return pyo.Constraint.Skip
+
+                        def _fill_right(disj, *idx):
+                            ctx = context.copy()
+                            idx_names = ctx.get("index_names", [f"index_{i}" for i in range(len(idx))])
+                            ctx["current_indices"] = dict(zip(idx_names, idx))
+                            self.ast_to_pyomo_constraints(model=disj, ast_node=ast_node.right, context=ctx, constraint_prefix=f"{constraint_prefix}_or_right", constraint_indices=None)
+                            return pyo.Constraint.Skip
+
+                        model.add_component(nameL := f"disj_{disjunct_id}_L", Disjunct(*index_sets,rule = _fill_left))
+                        model.add_component(nameR := f"disj_{disjunct_id}_R", Disjunct(*index_sets, rule = _fill_right))
+
+                        dL = getattr(model, nameL); dR = getattr(model, nameR)
+
+                        model.add_component(f"disjunction_{disjunct_id}", Disjunction(*index_sets, rule=lambda m, *idx: [dL[idx], dR[idx]]))
+
+                    return constraints           
+                    
+            # 3. 处理非逻辑运算符（比较、算术等）：生成单约束（支持多索引）
+            # 无索引场景
+            if not constraint_indices:
+                def rule(m):
+                    return self._get_pyomo_expr(ast_node, context)
+                constraint_name = f"{constraint_prefix}_no_index"
+                setattr(model, constraint_name, pyo.Constraint(rule=rule))
+                constraints.append(getattr(model, constraint_name))
+
+            # 多索引场景
+            else:
+                def indexed_rule(m, *index_args):
+                    index_names = context.get("index_names", [f"index_{i}" for i in range(len(index_args))])
+                    context["current_indices"] = dict(zip(index_names, index_args))
+                    return self._get_pyomo_expr(ast_node, context)
+
+                constraint_name = f"{constraint_prefix}_multi_index"
+                setattr(model, constraint_name, pyo.Constraint(*constraint_indices, rule=indexed_rule))
+                constraints.append(getattr(model, constraint_name))
+
+            return constraints
+        
+        except: pass
+    def _get_pyomo_expr(self, ast_node: Expr, context: Dict[str, Any]) -> pyo.Expression:
+        """
+        辅助函数：将AST节点转换为Pyomo的Expression（用于构建约束）。
+        
+        Args:
+            ast_node: AST节点
+            model: Pyomo模型
+            context: 上下文（包含变量映射，如{"x": model.x}）
+        
+        Returns:
+            Pyomo表达式（如model.x[A] + model.x[B] <= 50）
+        """
+        # 处理ValueNode（常量）
+        model = self.model
+        if isinstance(ast_node, ValueNode):
+            return ast_node.value
+        
+        # 处理FieldNode（变量，如"x"对应model.x）
+        elif isinstance(ast_node, FieldNode):
+            # 假设context中存储了“字段名→Pyomo变量”的映射，如{"total": model.total, "x": model.x}
+            return self.field_extract_adapter(ast_node.field,context=context)
+        
+        # 处理OpNode（比较/逻辑）
+        elif isinstance(ast_node, OpNode):
+            left_expr = self._get_pyomo_expr(ast_node.left, context)
+            right_expr = self._get_pyomo_expr(ast_node.right, context)
+            
+            # 比较运算符映射（Pyomo支持直接用<=、>=等）
+            op_map = {
+                "==": lambda a, b: a == b,
+                "!=": lambda a, b: a != b,
+                ">": lambda a, b: a > b,
+                ">=": lambda a, b: a >= b,
+                "<": lambda a, b: a < b,
+                "<=": lambda a, b: a <= b,
+            }
+            
+            if ast_node.op not in op_map:
+                raise ValueError(f"不支持的运算符 {ast_node.op}（仅支持比较和or）")
+            return op_map[ast_node.op](left_expr, right_expr)
+        
+        # 处理ArithmeticOpNode（算术运算，如x*0.8 + y*1.2）
+        elif isinstance(ast_node, ArithmeticOpNode):
+            left_expr = self._get_pyomo_expr(ast_node.left, context)
+            right_expr = self._get_pyomo_expr(ast_node.right, context)
+            
+            op_map = {
+                "+": lambda a, b: a + b,
+                "-": lambda a, b: a - b,
+                "*": lambda a, b: a * b,
+                "/": lambda a, b: a / b
+            }
+            
+            if ast_node.op not in op_map:
+                raise ValueError(f"不支持的算术运算符 {ast_node.op}")
+            return op_map[ast_node.op](left_expr, right_expr)
+        
+        # 处理AggregateNode（聚合，如sum(x)）
+        elif isinstance(ast_node, AggregateNode):
+            # 假设context中"global"对应聚合所需的列表（如产品列表、费用列表）
+            agg_list = context.get("global", [])
+            # 提取聚合字段（如model.x[p]中的x）
+            pyomo_var = context.get(ast_node.field)
+            if not pyomo_var:
+                raise ValueError(f"Context中未找到聚合字段 {ast_node.field} 对应的Pyomo变量")
+            
+            # 生成聚合表达式（如sum(model.x[p] for p in products)）
+            if ast_node.func == "sum":
+                return sum(pyomo_var[p] for p in agg_list)
+            elif ast_node.func in ["min", "max"]:
+                return getattr(pyomo_var, ast_node.func)(p for p in agg_list)
+            elif ast_node.func == "count":
+                return len([p for p in agg_list if ast_node.filter.eval({"p": p})])
+            
+            raise ValueError(f"不支持的聚合函数 {ast_node.func}")
+        
+        else:
+            raise TypeError(f"不支持的AST节点类型 {type(ast_node)}")
     def make(self, cfg: dynamic_constraint):
-        outer_self = self
         self.cfg = cfg
         pois = [a_id for a_id in self.poi_data['attractions']] + [h_id for h_id in self.poi_data['accommodations']]
-        def field_extract_adapter(self:FieldNode,context: dict):
-            self.field = self.field.lower()
-            if self.field == 'num_attractions_per_day':
-                day = context.get('day', 1)
-                return sum(outer_self.model.select_attr[day,a] for a in outer_self.model.attractions)
-            elif self.field == 'num_restaurants_per_day':
-                day = context.get('day', 1)
-                return sum(outer_self.model.select_rest[day,r] for r in outer_self.model.restaurants)
-            elif self.field == 'num_hotels_per_day':
-                day = context.get('day', 1)
-                return sum(outer_self.model.select_hotel[day,h] for h in outer_self.model.accommodations)
-            elif self.field == 'daily_total_time':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_time(day)
-                 
-            elif self.field == 'daily_queue_time':
-                day = context.get('day', 1)
-                return outer_self.get_daily_queue_time(day)
-            
-            elif self.field == 'daily_total_restaurant_time':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_restaurant_time(day)
-            
-            elif self.field == 'daily_transportation_time':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_transportation_time(day)
-            
-            elif self.field == 'total_active_time':
-                sum_time = 0
-                for day in range(outer_self.ir.travel_days):
-                    sum_time += outer_self.get_daily_total_time(day + 1) 
-                return sum_time  
-            elif self.field == 'total_transportation_time':
-                sum_time = 0
-                for day in range(outer_self.ir.travel_days):
-                    sum_time += outer_self.get_daily_total_transportation_time(day + 1) 
-                return sum_time
-            elif self.field == 'total_queue_time':
-                sum_time = 0
-                for day in range(outer_self.ir.travel_days):
-                    sum_time += outer_self.get_daily_queue_time(day + 1) 
-                return sum_time
-            elif self.field == 'total_restaurant_time':
-                sum_time = 0
-                for day in range(outer_self.ir.travel_days):
-                    sum_time += outer_self.get_daily_total_restaurant_time(day + 1) 
-                return sum_time
-            elif self.field == 'total_cost': 
-                return sum(outer_self.get_daily_total_cost(day) for day in range(outer_self.ir.travel_days)) 
-            elif self.field == 'total_hotel_cost':
-                return sum(outer_self.get_daily_total_hotel_cost(day) for day in range(outer_self.ir.travel_days))
-            elif self.field == 'total_attraction_cost':
-                return sum(outer_self.get_daily_total_attraction_cost(day) for day in range(outer_self.ir.travel_days))
-            elif self.field == 'total_restaurant_cost':
-                return sum(outer_self.get_daily_total_restaurant_cost(day) for day in range(outer_self.ir.travel_days))
-            elif self.field == 'total_transportation_cost':
-                return sum(outer_self.get_daily_total_transportation_cost(day) for day in range(outer_self.ir.travel_days))
-            elif self.field == 'daily_total_cost':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_cost(day)
-            elif self.field == 'daily_total_attraction_cost':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_attraction_cost(day)
-            elif self.field == 'daily_total_restaurant_cost':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_restaurant_cost(day)
-            elif self.field == 'daily_total_hotel_cost':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_hotel_cost(day)
-            elif self.field == 'daily_total_transportation_cost':
-                day = context.get('day', 1)
-                return outer_self.get_daily_total_transportation_cost(day)
-            
-        FieldNode.eval = field_extract_adapter
 
         attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
         hotel_dict = self.poi_data['accommodations']
@@ -1066,27 +1271,38 @@ class template:
                 return m.select_hotel[d, h] == m.select_hotel[d-1, h]
             self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
-        self.model.one_departure = pyo.Constraint(
-            rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
-        )
-        self.model.one_back = pyo.Constraint(
-            rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
-        )
+        if len(self.cross_city_train_departure) > 0:
+            self.model.one_departure = pyo.Constraint(
+                rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
+            )
+        if len(self.cross_city_train_back) > 0:
+            self.model.one_back = pyo.Constraint(
+                rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
+            )
         ##约束1
-        self.model.attr_num = pyo.Constraint(
-            self.model.days,
-            rule=lambda m, d: cfg.num_attractions_per_day.eval({'day': d})
-        )
+        if cfg.num_attractions_per_day:
+            self.ast_to_pyomo_constraints(self.model,cfg.num_attractions_per_day,{'index_names':['day']},"num_attr_per_day",[self.model.days])
+        else:
+            self.model.attr_num = pyo.Constraint(
+                self.model.days,
+                rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
+            )
 
-        self.model.rest_num = pyo.Constraint(
-            self.model.days,
-            rule=lambda m, d: cfg.num_restaurants_per_day.eval({'day': d})
-        )
-
-        self.model.hotel_num = pyo.Constraint(
-            self.model.days,
-            rule=lambda m, d:  cfg.num_hotels_per_day.eval({'day': d})
-        )
+        if cfg.num_restaurants_per_day:
+            self.ast_to_pyomo_constraints(self.model,cfg.num_restaurants_per_day,{'index_names':['day']},"num_rest_per_day",[self.model.days])
+        else:
+            self.model.rest_num = pyo.Constraint(
+                self.model.days,
+                rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
+            )
+        
+        if cfg.num_hotels_per_day:
+            self.ast_to_pyomo_constraints(self.model,cfg.num_hotels_per_day,{'index_names':['day']},"num_hotels_per_day",[self.model.days])
+        else:
+            self.model.hotel_num = pyo.Constraint(
+                self.model.days,
+                rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
+            )
 
         ##约束2
         if cfg.infra_city_transportation == 'public_transportation':
@@ -1102,110 +1318,70 @@ class template:
 
         ##约束4 每日活动时间约束
         if cfg.daily_total_time :
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_time,{'index_names':['day']},"daily_total_time",[self.model.days])
+        else:
             self.model.daily_time_rule = pyo.Constraint(
                 self.model.days,
-                rule=lambda m, d: cfg.daily_total_time.eval({'day': d})
+                rule=lambda m, d: self.get_daily_total_time(d) <= 840
             )
-        
         ## 用户约束
         if cfg.daily_queue_time :
-            self.model.daily_queue_time_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_queue_time.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_queue_time,{'index_names':['day']},"daily_queue_time",[self.model.days])
         
-        if cfg.daily_total_meal_time :
-            self.model.daily_total_meal_time_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_meal_time.eval({'day': d})
-            )
+        if cfg.daily_total_restaurant_time :
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_restaurant_time,{'index_names':['day']},"daily_total_restaurant_time",[self.model.days])
         
         if cfg.daily_transportation_time :
-            self.model.daily_transportation_time_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_transportation_time.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_transportation_time,{'index_names':['day']},"daily_transportation_time",[self.model.days])
 
         if cfg.total_active_time :
-            self.model.total_active_time_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_active_time.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_active_time,{},"total_active_time",constraint_indices=None)
 
         if cfg.total_restaurant_time:
-            self.model.total_resturant_time_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_restaurant_time.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_restaurant_time,{},"total_restaurant_time",constraint_indices=None)
 
         if cfg.total_queue_time :
-            self.model.total_queue_time_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_queue_time.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_queue_time,{},"total_queue_time",constraint_indices=None)
         
         if cfg.total_transportation_time :
-            self.model.total_transportation_time_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_transportation_time.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_transportation_time,{},"total_transportation_time",constraint_indices=None)
         
         if cfg.total_budget :
-            self.model.total_budget_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_budget.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_budget,{},"total_budget",constraint_indices=None)
         
         if cfg.total_meal_budget :
-            self.model.total_meal_budget_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_meal_budget.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_meal_budget,{},"total_meal_budget",constraint_indices=None)
         
         if cfg.total_attraction_ticket_budget :
-            self.model.total_attraction_ticket_budget_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_attraction_ticket_budget.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_attraction_ticket_budget,{},"total_attraction_budget",constraint_indices=None)
         
         if cfg.total_hotel_budget :
-            self.model.total_hotel_budget_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_hotel_budget.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_hotel_budget,{},"total_hotel_budget",constraint_indices=None)
         
         if cfg.total_transportation_budget :
-            self.model.total_transportation_budget_rule = pyo.Constraint(
-                rule=lambda m: cfg.total_transportation_budget.eval({})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.total_transportation_budget,{},"total_transportation_budget",constraint_indices=None)
         
         if cfg.daily_total_budget:
-            self.model.daily_total_budget_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_budget.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_budget,{'index_names':['day']},"daily_total_budget",[self.model.days])
         
         if cfg.daily_total_meal_budget:
-            self.model.daily_total_meal_budget_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_meal_budget.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_meal_budget,{'index_names':['day']},"daily_total_meal_budget",[self.model.days])
         
         if cfg.daily_total_attraction_ticket_budget:
-            self.model.daily_total_attraction_ticket_budget_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_attraction_ticket_budget.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_attraction_ticket_budget,{'index_names':['day']},"daily_total_attraction_budget",[self.model.days])
         
         if cfg.daily_total_hotel_budget:
-            self.model.daily_total_hotel_budget_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_hotel_budget.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_hotel_budget,{'index_names':['day']},"daily_total_hotel_budget",[self.model.days])
         
         if cfg.daily_total_transportation_budget:
-            self.model.daily_total_transportation_budget_rule = pyo.Constraint(
-                self.model.days,
-                rule=lambda m, d: cfg.daily_total_transportation_budget.eval({'day': d})
-            )
+            self.ast_to_pyomo_constraints(self.model,cfg.daily_total_transportation_budget,{'index_names':['day']},"daily_total_transportation_budget",[self.model.days])
 
         try:
         #############extra code##############
 
 
 
+            pass
         #############extra code##############
         except: pass
 
@@ -1391,9 +1567,9 @@ class template:
 
         if day != travel_days:
             daily_cost += selected_hotel['cost'] * self.cfg.rooms_per_night
-        if day == 1:
+        if day == 1 and isinstance(departure_trains,dict):
             daily_cost += peoples * departure_trains['cost']
-        if day == travel_days:
+        if day == travel_days and isinstance(back_trains,dict):
             daily_cost += peoples * back_trains['cost']
 
         return daily_cost + transport_cost, transport_cost
@@ -1467,6 +1643,8 @@ class template:
         }
     
 def get_solution(omo:template):
+    if omo.use_disj:
+        TransformationFactory('gdp.bigm').apply_to(omo.model)
     solver = omo.configure_solver()
     results = solver.solve(omo.model, tee=True)
     plan = omo.generate_daily_plan()
@@ -1477,6 +1655,10 @@ def get_solution(omo:template):
 #Todo 目标函数 + LLM交互文件
 
 if __name__ == '__main__':
+    cross_city_train_departure = {}
+    cross_city_train_back = {}
+    poi_data = {'attractions': {}, 'accommodations': {}, 'restaurants': {}}
+    intra_city_trans = {}
 
     ###########################IR && dynamic_constraint#############################
 
@@ -1505,10 +1687,12 @@ if __name__ == '__main__':
             ]
         date = generate_date_range(ir.start_date)
         departure_trains = back_trains = 'null'
-        if len(cross_city_train_departure) > 0:
-            departure_trains = cross_city_train_departure.keys()[0]
-        if len(cross_city_train_back) > 0:
-            back_trains = cross_city_train_back.keys()[0]
+        if isinstance(cross_city_train_departure, dict) and cross_city_train_departure:
+            first_key = next(iter(cross_city_train_departure))
+            departure_trains = cross_city_train_departure[first_key]
+        if isinstance(cross_city_train_back, dict) and cross_city_train_back:
+            first_key = next(iter(cross_city_train_back))
+            back_trains = cross_city_train_back[first_key]
         daily_plans = []
         selected_hotel = 'null'
         attr_details = 'null'
@@ -1519,24 +1703,26 @@ if __name__ == '__main__':
         }
         for day in range(1, ir.travel_days + 1):
             
-            if len(poi_data['accommodations']) > day:
-                key = poi_data['accommodations'].keys()[day - 1]
+            if len(poi_data['accommodations']) >= day:
+                key = list(poi_data['accommodations'].keys())[day - 1]
                 selected_hotel = poi_data['accommodations'][key]
             
-            if len(poi_data['attractions']) > day:
-                key = poi_data['attractions'].keys()[day - 1]
+            if len(poi_data['attractions']) >= day:
+                key = list(poi_data['attractions'].keys())[day - 1]
                 attr_details = poi_data['attractions'][key]
 
-            if len(poi_data['restaurants']) > day * 3:
-                key = poi_data['restaurants'].keys()[(day-1) * 3 ]
+            if len(poi_data['restaurants']) >= day * 3:
+                key = list(poi_data['restaurants'].keys())[(day-1) * 3 ]
+                key_1 = list(poi_data['restaurants'].keys())[(day-1) * 3 + 1]
+                key_2 = list(poi_data['restaurants'].keys())[(day-1) * 3 + 2]
                 meal_allocation = { #todo
                     'breakfast': poi_data['restaurants'][key],
-                    'lunch': poi_data['restaurants'][key + 1],
-                    'dinner': poi_data['restaurants'][key + 2]
+                    'lunch': poi_data['restaurants'][key_1],
+                    'dinner': poi_data['restaurants'][key_2]
                 }
             elif meal_allocation['breakfast'] == 'null' and len(poi_data['restaurants']) > 0:
-                key_1 = poi_data['restaurants'].keys()[0]
-                key_2 = poi_data['restaurants'].keys()[1] if len(poi_data['restaurants'] > 1) else None
+                key_1 = list(poi_data['restaurants'].keys())[0]
+                key_2 = list(poi_data['restaurants'].keys())[1] if len(poi_data['restaurants']) > 1 else None
                 meal_allocation = {
                     'breakfast': poi_data['restaurants'][key_1],
                     'lunch': poi_data['restaurants'][key_2] if key_2 else 'null',
