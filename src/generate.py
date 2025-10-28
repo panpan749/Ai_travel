@@ -356,16 +356,13 @@ async def test():
         for item in json_problems:
             problems[item['question_id']] = item['question'] 
 
-    static,dynamic,objective = await get_llm_result_parallel('1')
-    json_data = json.loads(dynamic)
-    code = json_data['extra'] + '\n' + objective
-    del json_data['extra']
-    dynamic = json.dumps(json_data,indent=2,ensure_ascii=False)
+    static,dynamic,objective = await get_llm_result_parallel('6')
+    insert_code, extra_code = create_code(static,dynamic,objective,user_problem=problems['6'])
     create_code_file(
         template_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\src\\template.py',
         code_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\prompts\\code\\id_6.py',
-        insert_code=f"ir_data = \"\"\"{static}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)",
-        extra_code=code
+        insert_code=insert_code,
+        extra_code=extra_code
     )
     ir_from_json(static)
     dynamic_constraint_from_json(dynamic)
@@ -379,4 +376,4 @@ if __name__ == '__main__':
     # asyncio.run(main())
     # asyncio.run(test_dynamic())
     # asyncio.run(test_objective())
-    asyncio.run(main())
+    asyncio.run(test())

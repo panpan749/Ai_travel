@@ -1386,7 +1386,35 @@ class template:
         try:
         #############extra code##############
 
+            # 必须包含指定景点
+            self.model.must_have_attractions = pyo.Constraint(
+                rule=lambda m: sum(
+                    m.select_attr[d, a]
+                    for d in m.days
+                    for a in m.attractions
+                    if ('长隆' in m.attr_data[a]['name']) or ('广州塔' in m.attr_data[a]['name']) or ('沙面岛' in m.attr_data[a]['name'])
+                ) >= 1
+            )
 
+            # 必须包含粤菜或早茶餐厅
+            self.model.must_have_cantonese_food = pyo.Constraint(
+                rule=lambda m: sum(
+                    m.select_rest[d, r]
+                    for d in m.days
+                    for r in m.restaurants
+                    if ('粤菜' in m.rest_data[r]['type']) or ('早茶' in m.rest_data[r]['type']) or ('粤菜' in m.rest_data[r]['recommended_food']) or ('早茶' in m.rest_data[r]['recommended_food'])
+                ) >= 1
+            )
+            def objective_rule(model):
+                total_rating = sum(self.get_daily_total_rating(day) for day in model.days)
+                total_queue_time = sum(self.get_daily_queue_time(day) for day in model.days)
+                total_transport_time = sum(self.get_daily_total_transportation_time(day) for day in model.days)
+
+                # 最大化评分，最小化排队时间和交通时间
+                # 权重分配：评分+1，排队时间-1，交通时间-1
+                return total_rating - total_queue_time - total_transport_time
+
+            self.model.obj = pyo.Objective(rule=objective_rule, sense=pyo.maximize)
 
             pass
         #############extra code##############
@@ -1669,12 +1697,120 @@ if __name__ == '__main__':
 
     ###########################IR && dynamic_constraint#############################
 
-
+    ir_data = """{
+      "start_date": "2025年7月20日",
+      "peoples": 4,
+      "travel_days": 6,
+      "original_city": "重庆",
+      "destinate_city": "广州",
+      "budgets": 0,
+      "attraction_constraints": null,
+      "accommodation_constraints": {
+        "type": "op",
+        "op": "and",
+        "left": {
+          "type": "op",
+          "op": "<=",
+          "left": {
+            "type": "field",
+            "field": "cost"
+          },
+          "right": {
+            "type": "value",
+            "value": 1200
+          }
+        },
+        "right": {
+          "type": "op",
+          "op": "or",
+          "left": {
+            "type": "op",
+            "op": "include",
+            "left": {
+              "type": "field",
+              "field": "feature"
+            },
+            "right": {
+              "type": "value",
+              "value": "早餐"
+            }
+          },
+          "right": {
+            "type": "op",
+            "op": "include",
+            "left": {
+              "type": "field",
+              "field": "feature"
+            },
+            "right": {
+              "type": "value",
+              "value": "早点"
+            }
+          }
+        }
+      },
+      "restaurant_constraints": {
+        "type": "op",
+        "op": "<=",
+        "left": {
+          "type": "field",
+          "field": "cost"
+        },
+        "right": {
+          "type": "value",
+          "value": 150
+        }
+      },
+      "departure_transport_constraints": null,
+      "back_transport_constraints": null
+    }"""
+    dc_data = """{
+      "num_travlers": 4,
+      "rooms_per_night": 2,
+      "change_hotel": false,
+      "daily_total_time": {
+        "type": "op",
+        "op": "<=",
+        "left": {
+          "type": "field",
+          "field": "daily_total_time"
+        },
+        "right": {
+          "type": "value",
+          "value": 840
+        }
+      },
+      "daily_queue_time": null,
+      "daily_total_restaurant_time": null,
+      "daily_transportation_time": null,
+      "total_active_time": null,
+      "total_queue_time": null,
+      "total_restaurant_time": null,
+      "total_transportation_time": null,
+      "num_attractions_per_day": null,
+      "num_restaurants_per_day": null,
+      "num_hotels_per_day": null,
+      "infra_city_transportation": "none",
+      "total_budget": null,
+      "total_meal_budget": null,
+      "total_attraction_ticket_budget": null,
+      "total_hotel_budget": null,
+      "total_transportation_budget": null,
+      "daily_total_budget": null,
+      "daily_total_meal_budget": null,
+      "daily_total_attraction_ticket_budget": null,
+      "daily_total_hotel_budget": null,
+      "daily_total_transportation_budget": null
+    }""" 
+    ir = ir_from_json(ir_data)
+    dc = dynamic_constraint_from_json(dc_data)
 
     ##########################################################
 
     try:
-        cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
+        # cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
+        from mock import get_mock_data
+        cross_city_train_departure, cross_city_train_back, poi_data, intra_city_trans = get_mock_data()
         for item in cross_city_train_departure:
             item['cost'] = float(item['cost'])
             item['duration'] = float(item['duration'])
@@ -1697,6 +1833,8 @@ if __name__ == '__main__':
             item['cost'] = float(item['cost'])
             item['duration'] = float(item['duration'])
             item['queue_time'] = float(item['queue_time'])
+
+        user_question = '一家四口计划从重庆出发前往广州玩六天五晚，不限制预算，主要想带孩子体验南方风情。打算于2025年7月20日出发，7月25日返回。希望入住提供早餐的酒店，价格不超1200元每晚；景点安排长隆、广州塔、沙面岛等；推荐粤菜馆、早茶餐厅，人均消费不超150元；交通方式可自由安排。希望获得一个最高品质的旅行体验。'
         # fetch 数据
         cross_city_train_departure, cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
         # 粗排: todo
