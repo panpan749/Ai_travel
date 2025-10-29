@@ -355,9 +355,10 @@ async def test():
         json_problems = json.load(f)
         for item in json_problems:
             problems[item['question_id']] = item['question'] 
-
-    static,dynamic,objective = await get_llm_result_parallel('6')
-    insert_code, extra_code = create_code(static,dynamic,objective,user_problem=problems['6'])
+    test_id = '29'
+    static,dynamic,objective = await get_llm_result_parallel(test_id,write_log=True)
+    
+    insert_code, extra_code = create_code(static,dynamic,objective,user_problem=problems[test_id])
     create_code_file(
         template_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\src\\template.py',
         code_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\prompts\\code\\id_6.py',
@@ -373,7 +374,7 @@ async def test():
     print(f'耗时：{(end-begin):2f}s')
 
 if __name__ == '__main__':
-    # asyncio.run(main())
+    asyncio.run(main())
     # asyncio.run(test_dynamic())
     # asyncio.run(test_objective())
-    asyncio.run(test())
+    # asyncio.run(test())

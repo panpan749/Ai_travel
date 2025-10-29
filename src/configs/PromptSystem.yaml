@@ -140,7 +140,10 @@ static: |
     - 其他任何在动态规划期间的约束
 
   * 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。 
-  
+  * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
+  - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
+  - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要考虑。
+
   * **重要**: 虽然某些动态的需求不需要转换为静态约束的Expr表达树，但是你必须正确填写IR的字段，比如：
       - start_date: 旅行开始日期（格式：YYYY年MM月DD日, str）
       - peoples: 旅行人数，默认1人（int）
@@ -424,11 +427,11 @@ dynamic: |
   - infra_city_transportation: [str] 市内交通方式（'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制
 
   ### 预算相关约束 默认不设限制
-  - total_budget: [Expr] 总预算约束
-  - total_meal_budget: [Expr] 总餐饮预算约束
-  - total_attraction_ticket_budget: [Expr] 总景点门票预算约束
-  - total_hotel_budget: [Expr] 总住宿预算约束
-  - total_transportation_budget: [Expr] 总交通预算约束
+  - total_budget: [Expr] 总预算约束,注意与人均/每日预算的区分
+  - total_meal_budget: [Expr] 总餐饮预算约束,注意与人均/每餐预算的区分
+  - total_attraction_ticket_budget: [Expr] 总景点门票预算约束,注意与每日景点/人均预算的区分
+  - total_hotel_budget: [Expr] 总住宿预算约束，注意与酒店价格的静态约束区分
+  - total_transportation_budget: [Expr] 总交通预算约束，注意与每日交通预算的区分
   - daily_total_budget: [Expr] 每日总预算约束
   - daily_total_meal_budget: [Expr] 每日餐饮预算约束
   - daily_total_attraction_ticket_budget: [Expr] 每日景点门票预算约束
@@ -781,10 +784,15 @@ dynamic: |
     以上这些都是动态约束条件，你需要根据用户实际的需求转换为dynamic_constraints
 
   * **重要**：用户有明确提及的实体相关的自然语言，只要是明确的，有效的实体，均需要考虑提取为需求，至于是静态约束还是动态约束，在之后的步骤再过滤：
-    - 例如：用户提到，推荐游玩A景点；由于用户明确提及了A景点，所以需要将其转换为需求；所以这并非看用户的语气，而是看需求的可转换性；
-    - 再例如：用户提到，朋友认为四川的火锅比较好吃，这也明确提及了"火锅"这个菜品实体，所以也要提取为需求； 
-    - 例如：用户提到，想带孩子体验南方风情，这一点语义不明确，也没有提到实体，也无法定量分析，故可以忽略；（强行建模可能导致pyomo无解）
+    - 正例：用户提到，推荐游玩A景点；由于用户明确提及了A景点，所以需要将其转换为需求；所以这并非看用户的语气，而是看需求的可转换性；
+    - 正例：用户提到，朋友认为四川的火锅比较好吃，这也明确提及了"火锅"这个菜品实体，所以也要提取为需求； 
+    - 反例：用户提到，想带孩子体验南方风情，这一点语义不明确，也没有提到实体，也无法定量分析，故可以忽略；（强行建模可能导致pyomo无解）
+    - 反例：用户提到，想来一场文化和自然之旅，由于没有明确提及实体，也无法定量分析，不能过度解读和强行建模，所以忽略；
     - 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。
+  
+  * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
+    - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
+    - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要忽略。
 
   * 你需要参考约束构建指南中的一些示例来辅助你构建约束条件。
   * 对于用户没有提及的动态约束条件，若有默认值则按默认值输出，否则置为Null。
@@ -862,7 +870,7 @@ dynamic: |
   "extra": "
     self.model.feature_rest = pyo.Constraint(
       rule=lambda m: sum(
-          self.model.select_rest[d, r]
+          self.model.select_rest[d, r] ##注意这里统一用self.model而不是m，确保代码鲁棒性
           for r in self.model.restaurants
           for d in days
           if '火锅' in self.model.rest_data[r]['type'] or '火锅' in self.model.rest_data[r]['recommended_food'] or '川菜' in self.model.rest_data[r]['type']
@@ -887,6 +895,9 @@ dynamic: |
   )
   "
   }
+
+  注意：严谨编码，在编写extra中的代码时，你必须考虑当前的作用域，比如pyo的model在此处应该写self.model而不是model，不要虚构任何没有在pyomo schema的代码上下文中定义过的变量或不符合python语法的代码。
+
 
   ## 输出格式
   ```json
@@ -974,10 +985,10 @@ dynamic: |
   # 额外动态约束示例：行程中至少包含一家“博物馆/美术馆”相关景点(想去某某景点，想吃某某菜品，等等可以参考指南)
   self.model.must_have_museum = pyo.Constraint(
       rule=lambda m: sum(
-          m.select_attr[d, a]
-          for d in m.days
-          for a in m.attractions
-          if ('博物馆' in m.attr_data[a]['type']) or ('美术馆' in m.attr_data[a]['type'])
+          self.model.select_attr[d, a]
+          for d in self.model.days
+          for a in self.model.attractions
+          if ('博物馆' in self.model.attr_data[a]['type']) or ('美术馆' in self.model.attr_data[a]['type'])
       ) >= 1
   )"
   }
@@ -1442,7 +1453,7 @@ objective: |
     total_rating = sum(self.get_daily_total_rating(day) for day in days)
     return total_rating - total_cost
 
-  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize)
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize) ##注意统一用obj命名
   ```
 
   请根据用户的具体需求和偏好，生成相应的目标函数代码。

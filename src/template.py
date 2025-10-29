@@ -36,7 +36,7 @@ class Expr:
         raise NotImplementedError
 
     @staticmethod
-    def from_dict(data: Dict[str, Any]) -> "Expr":
+    def from_dict(data: Dict[str, Any]) -> Expr:
         """从字典反序列化表达式对象，支持多态创建。
         
         Args:
