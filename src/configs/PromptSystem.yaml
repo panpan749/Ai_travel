@@ -794,6 +794,38 @@ dynamic: |
     - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
     - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要忽略。
 
+  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，默认在extra中的代码对于每一个菜品(景点)都需要满足：
+    - 例如: 用户问题：我计划从重庆前往南京进行三天两晚文化+自然之旅，从2025年7月10日出发，7月12日返回，预算30000元，尽可能花光预算。想找评分4.5以上、价格低于600元每晚的高品质住宿；打卡午朝门公园、中华门、美龄宫等热门景点；餐厅人均消费在200元以内；交通方式以地铁公交为主。
+    - 分析：这里用户提到了多个景点，则每个景点都要满足（餐厅，菜品相关的约束也同理），代码:
+    {
+      "extra": "
+  self.model.must_have_attraction_1 = pyo.Constraint(
+          rule=lambda m: sum(
+              self.model.select_attr[d, a]
+              for d in self.model.days
+              for a in self.model.attractions
+              if ('午朝门公园' in self.model.attr_data[a]['name'])
+          ) >= 1
+      ) 
+  self.model.must_have_attraction_2 = pyo.Constraint(
+        rule=lambda m: sum(
+            self.model.select_attr[d, a]
+            for d in self.model.days
+            for a in self.model.attractions
+            if ('中华门' in self.model.attr_data[a]['name'])
+        ) >= 1
+    )     
+  self.model.must_have_attraction_3 = pyo.Constraint(
+        rule=lambda m: sum(
+            self.model.select_attr[d, a]
+            for d in self.model.days
+            for a in self.model.attractions
+            if ('美龄宫' in self.model.attr_data[a]['name'])
+        ) >= 1
+    )         
+    "
+    }
+  
   * 你需要参考约束构建指南中的一些示例来辅助你构建约束条件。
   * 对于用户没有提及的动态约束条件，若有默认值则按默认值输出，否则置为Null。
   * 先用自然语言输出你遵循构建指南时的详细分析，再输出dynamic_constraint。
@@ -804,11 +836,12 @@ dynamic: |
   ### 约束构建管线（严格遵循）
   1. 分析用户需求，分点列出用户的需求，注意显式需求和隐式需求，对于显式需求，写下"[显式需求]"作为标记，对于隐式需求，写下"[隐式需求]"作为标记，确保没有遗漏。
   2. 过滤掉任何的静态需求或优化目标，只处理用户的动态约束
-  3. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
-  4. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  5. 回顾用户的需求，检查是否有遗漏的隐晦需求，确保提取了所有符合用户偏好的需求。
-  5. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
-  6. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
+  3. 过滤掉无法定量分析也没有明确提及实体的语义不明的无效需求
+  4. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
+  5. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
+  6. 回顾用户的需求，检查是否有遗漏的隐晦需求，确保提取了所有符合用户偏好的需求。
+  7. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
+  8. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
 
   ### 约束示例
   ```json

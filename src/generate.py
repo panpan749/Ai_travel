@@ -11,9 +11,9 @@ prompt_sys = PromptSystem.getSingleton()
 static_prompt = prompt_sys.getPrompt('static')
 dynamic_prompt = prompt_sys.getPrompt('dynamic')
 objective_prompt = prompt_sys.getPrompt('objective')
-llm_static = LLM('deepseek-v3.1-nothinking',system_prompt=static_prompt)
-llm_dynamic = LLM('deepseek-v3.1-nothinking',system_prompt=dynamic_prompt)
-llm_objective = LLM('deepseek-v3.1-nothinking',system_prompt=objective_prompt)
+llm_static = LLM('qwen3-max',system_prompt=static_prompt)
+llm_dynamic = LLM('qwen3-max',system_prompt=dynamic_prompt)
+llm_objective = LLM('qwen3-max',system_prompt=objective_prompt)
 
 code_config = []
 problems = {}
@@ -263,7 +263,8 @@ async def main():
     code_path = Config.get_global_config().config['code_path']
     template_file = Config.get_global_config().config['template_file']
 
-    break_point = 0
+    break_point = 22
+    end_num = 120
     with open(problem_file, 'r', encoding='utf-8') as f:
         json_problems = json.load(f)
         for item in json_problems:
@@ -284,7 +285,8 @@ async def main():
         main_code,extra_code = create_code(static,dynamic,objective,user_problem=problems[problem])
         code_file = f"{code_path}/id_{problem}.py"
         create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
-
+        if int(problem) == end_num:
+            break
     
     dump_file = Config.get_global_config().config['question_prompt']
 
