@@ -263,7 +263,7 @@ async def main():
     code_path = Config.get_global_config().config['code_path']
     template_file = Config.get_global_config().config['template_file']
 
-    break_point = 22
+    break_point = 112
     end_num = 120
     with open(problem_file, 'r', encoding='utf-8') as f:
         json_problems = json.load(f)

@@ -10,8 +10,8 @@ static: |
   - start_date: 旅行开始日期（格式：YYYY年MM月DD日, str）
   - peoples: 旅行人数，默认1人（int）
   - travel_days: 旅行天数，由用户需求解析，包括出发日和返程日（int）
-  - original_city: 出发城市，由用户需求解析（str）
-  - destinate_city: 目的地城市，由用户需求解析（str）
+  - original_city: 出发城市，由用户需求解析（str），如深圳市
+  - destinate_city: 目的地城市，由用户需求解析（str），如上海市
   - budgets: 总预算（int，单位：元，默认为0表示无预算限制）
   - attraction_constraints: 景点选择约束（Expr表达式树，根据实际问题可选）
   - accommodation_constraints: 住宿选择约束（Expr表达式树，根据实际问题可选）
@@ -93,9 +93,9 @@ static: |
     'id': (str)酒店id,
     'name': (str)酒店名称,
     'cost': (float)酒店人均价格，单位元,
-    'type': (str)酒店类型，可包含酒店的星级信息等,
+    'type': (str)酒店类型，可包含酒店的星级信息等, 如五星级酒店, 也可以是酒店本身的类别，如客栈，旅馆，民宿等等，也可以是连锁酒店(但不包含精品，特色，主题酒店等虚无的类别)
     'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
-    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等
+    'feature': (str)酒店的特色服务，如'早茶','免费接送','免费停车','会议室'等等
   }
   ### Restaurant字段协议
   {
@@ -131,6 +131,7 @@ static: |
   * **重要**：明确说明，你需要**忽略**的动态约束条件包括但不限于以下几点：
     - 行程中需包含xxx景点 (xxx景点至少大于一次，属于动态规划约束，忽略！)
     - 希望吃到xx菜品 (含xx菜品的餐厅至少大于一次，属于动态规划约束，忽略！)
+    - 用户想吃的餐厅类型，想去的景点（如想吃川菜，想去长隆，这些都是动态约束）
     - 预算在xxx元内 (属于动态规划约束，忽略！)
     - 每日的交通时长在xxx分钟内 (属于动态规划约束，忽略！)
     - 出行方式偏好打车 (无需关注市内交通，忽略！)
@@ -139,7 +140,10 @@ static: |
     - 推荐玩当地的某某景点 (属于动态规划约束，忽略！)
     - 其他任何在动态规划期间的约束
 
+  * 任何约束都必须与实体关联才能称之为约束，比如用户希望住民宿，则这是一个酒店的type约束，但是用户希望住靠近海边的酒店，这个靠近海边既无法作为酒店的类型，也无法作为酒店的特色服务（因为这不是服务），所以忽略该约束；主题酒店的主题，精品酒店的精品，特色酒店的特色，均无与之关联的有实际意义的实体，故忽略。所以你在寻找静态约束的时候要关注用户提及的实体。
   * 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。 
+  * 除非特别说明，否则所有的大于号和小于号都默认取等，即>=, <=
+
   * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
   - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
   - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要考虑。
@@ -330,7 +334,7 @@ static: |
     "return_field": "*",
     "filter": null
   }
-  解释：此处用聚合表达式来筛选出耗时最短的列车车次，由于顶层是聚合运算符，所以系统会直接处理'global'字段中的列车数据，并通过return_field指定为*可以直接过滤出最快的列车车次。
+  解释：此处用聚合表达式来筛选出耗时最短的列车车次，由于顶层是聚合运算符，所以系统会直接处理'global'字段中的列车数据，必须通过return_field指定为*可以直接过滤出最快的列车车次。
 
   ## Output Protobuf
   ### 输出要求
@@ -424,7 +428,8 @@ dynamic: |
   - num_hotels_per_day: [Expr] 每日酒店数量约束，默认每日一个酒店，默认全程住一家酒店
 
   ### 交通相关约束
-  - infra_city_transportation: [str] 市内交通方式（'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制
+  - infra_city_transportation: [str] 市内交通方式（'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制；
+  注意：只要不是打车，其他都算public_transportation,如轮渡
 
   ### 预算相关约束 默认不设限制
   - total_budget: [Expr] 总预算约束,注意与人均/每日预算的区分
@@ -543,7 +548,7 @@ dynamic: |
   * "daily_total_restaurant_time": "每日总用餐时间,不包括排队时间"
   * "daily_transportation_time": "每日总的市内交通时间，不包括跨城的交通时间"
   * "total_active_time": "行程总的活动时间"
-  * "total_transportation_time": "行程总市内交通时间"
+  * "total_transportation_time": "行程总市内交通时间,不包括跨城交通时间，如需求需要包括跨城的交通时间，则应该在extra字段中自定义代码"
   * "total_queue_time": "行程总排队时间"
   * "total_restaurant_time": "行程总用餐时间,不包括排队时间"
   * "total_cost": "行程总花费,包括景点门票，用餐，酒店和交通的花费"
@@ -1015,14 +1020,13 @@ dynamic: |
     },
 
     "extra": "
-  # 额外动态约束示例：行程中至少包含一家“博物馆/美术馆”相关景点(想去某某景点，想吃某某菜品，等等可以参考指南)
+  # 额外动态约束示例：行程中至少包含一家博物馆相关景点(想去某某景点，想吃某某菜品，等等可以参考指南)
   self.model.must_have_museum = pyo.Constraint(
       rule=lambda m: sum(
           self.model.select_attr[d, a]
           for d in self.model.days
           for a in self.model.attractions
-          if ('博物馆' in self.model.attr_data[a]['type']) or ('美术馆' in self.model.attr_data[a]['type'])
-      ) >= 1
+          if ('博物馆' in self.model.attr_data[a]['type']) >= 1
   )"
   }
   ```
@@ -1314,7 +1318,7 @@ objective: |
     返回某一天在**餐厅用餐所花费的总时间**（不包括排队时间）。
 
   4. **get_daily_total_transportation_time(self, day)**  
-    返回某一天的**总交通时间**（若为多日行程，则包含城市内的景点/餐厅/酒店之间的交通时间）。
+    返回某一天的**总交通时间**（若为多日行程，则包含城市内的景点/餐厅/酒店之间的交通时间）。注意，这里不包括跨城交通，如果用户提到的是总时间/总交通时间，你需要额外计算跨城的高铁的来回duration。
 
   5. **get_daily_total_attraction_time(self, day)**
     返回某天**在景点游玩的总时间**。
@@ -1468,7 +1472,7 @@ objective: |
   ```python
   def objective_rule(model):
     total_cost = sum(self.get_daily_total_cost(day) for day in days)
-    return (20000 - total_cost) ** 2
+    return (20000 - total_cost) 
 
   self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.minimize)
   ```

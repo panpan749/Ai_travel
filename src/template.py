@@ -536,6 +536,11 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
 def fetch_data(ir: IR):
     origin_city = ir.original_city
     destination_city = ir.destinate_city 
+    if '市' not in origin_city:
+        origin_city = origin_city + '市'
+    if '市' not in destination_city:
+        destination_city = destination_city + '市'
+
     url = "http://localhost:12457"
     max_retry = 3
     while max_retry > 0:
@@ -815,7 +820,15 @@ class template:
             for p1 in self.model.pois
             for p2 in self.model.pois
         )
-        return transport_cost
+        train_cost = 0
+        if day == 1:
+            train_cost += sum(self.model.select_train_departure[t] * self.model.train_departure_data[t]['cost']
+                               for t in self.model.train_departure)
+        elif day == self.ir.travel_days:
+            train_cost += sum(self.model.select_train_back[t] * self.model.train_back_data[t]['cost']
+                               for t in self.model.train_back)
+            
+        return transport_cost + peoples * train_cost
     def field_extract_adapter(self, field:str, context: dict):
         field = field.lower()
         current_indices:dict = context.get('current_indices', {})
