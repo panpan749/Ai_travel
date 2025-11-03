@@ -105,7 +105,7 @@ static: |
     'type': (str)餐厅的类别，如'西餐'，'咖啡厅','餐饮相关'等等,
     'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
     'queue_time': (float)餐厅排队时间，单位为分钟,
-    'recommend_food': (str)该餐厅推荐的菜品
+    'recommended_food': (str)该餐厅推荐的菜品
   }
   ### 跨城交通字段协议
   {
@@ -521,7 +521,7 @@ dynamic: |
     'type': (str)餐厅的类别，如'西餐'，'咖啡厅','餐饮相关'等等,
     'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
     'queue_time': (float)餐厅排队时间，单位为分钟,
-    'recommend_food': (str)该餐厅推荐的菜品
+    'recommended_food': (str)该餐厅推荐的菜品
   }
   ### 跨城交通
   {
@@ -1393,7 +1393,7 @@ objective: |
     'type': (str)餐厅的类别，如'西餐'，'咖啡厅','餐饮相关'等等,
     'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
     'queue_time': (float)餐厅排队时间，单位为分钟,
-    'recommend_food': (str)该餐厅推荐的菜品
+    'recommended_food': (str)该餐厅推荐的菜品
   }
   #### 跨城交通
   {

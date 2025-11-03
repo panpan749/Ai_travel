@@ -753,7 +753,7 @@ class template:
 
         transport_cost = sum(
             self.model.poi_poi[day, p1, p2] * (
-                    (1 - self.model.trans_mode[day]) * ((peoples) / 4 + int(peoples % 4 > 0) ) * (
+                    (1 - self.model.trans_mode[day]) * ((peoples) // 4 + int(peoples % 4 > 0) ) * (
                     get_trans_params(self.intra_city_trans, p1, p2, 'taxi_cost') 
                     )
                 )   + \
@@ -808,7 +808,7 @@ class template:
         peoples = self.ir.peoples
         transport_cost = sum(
             self.model.poi_poi[day, p1, p2] * (
-                    (1 - self.model.trans_mode[day]) * ((peoples) / 4 + int(peoples % 4 > 0) ) * (
+                    (1 - self.model.trans_mode[day]) * ((peoples) // 4 + int(peoples % 4 > 0) ) * (
                     get_trans_params(self.intra_city_trans, p1, p2, 'taxi_cost') 
                     )
                 )   + \
@@ -1583,7 +1583,7 @@ class template:
                     order[i + 1]['id'],
                     'taxi_cost'
                 )
-                transport_cost = ((peoples) / 4 + int(peoples % 4 > 0) ) * transport_cost
+                transport_cost = ((peoples) // 4 + int(peoples % 4 > 0) ) * transport_cost
 
         if day != travel_days:
             daily_cost += selected_hotel['cost'] * self.cfg.rooms_per_night
@@ -1647,7 +1647,7 @@ class template:
             daily_plans.append(day_plan)
             total_cost += daily_cost
 
-        return { #todo
+        return { 
             "budget": self.ir.budgets,
             "peoples": self.ir.peoples,
             "travel_days": travel_days,
