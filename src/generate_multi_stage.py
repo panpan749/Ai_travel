@@ -1,7 +1,7 @@
 from prompt_system import PromptSystem
 from base import LLM
 import asyncio
-from IR import *
+from IR_multi_stage import *
 from dataclasses import asdict
 import json,re
 from base import Config
@@ -29,25 +29,34 @@ def ir_from_json(json_str: str) -> IR:
             return None
         return Expr.from_dict(constraint_data)
     
+    def parse_stage(stage_data: Dict[str, Any]) -> stage:
+        return stage(
+            origin_city=stage_data["original_city"],
+            destinate_city=stage_data["destinate_city"],
+            travel_days=stage_data["travel_days"],
+            attraction_constraints=parse_constraint(stage_data.get("attraction_constraints")),
+            accommodation_constraints=parse_constraint(stage_data.get("accommodation_constraints")),
+            restaurant_constraints=parse_constraint(stage_data.get("restaurant_constraints")),
+        )
+    
     # 3. 构建并返回IR实例
     return IR(
         start_date=data["start_date"],
         peoples=data["peoples"],
-        travel_days=data["travel_days"],
-        original_city=data["original_city"],
-        destinate_city=data["destinate_city"],
+        total_travel_days=data["total_travel_days"],
         budgets=data.get("budgets", 0),  # 支持默认值
-        attraction_constraints=parse_constraint(data.get("attraction_constraints")),
-        accommodation_constraints=parse_constraint(data.get("accommodation_constraints")),
-        restaurant_constraints=parse_constraint(data.get("restaurant_constraints")),
-        depature_transport_constraints=parse_constraint(data.get("depature_transport_constraints")),
+        children_num=data.get("children_num", 0),
+        stages=[parse_stage(stage_data) for stage_data in data["stages"]],
+        departure_transport_constraints=parse_constraint(data.get("departure_transport_constraints")),
         back_transport_constraints=parse_constraint(data.get("back_transport_constraints")),
+        intermediate_transport_constraints=parse_constraint(data.get("intermediate_transport_constraints")),
     )
 
 def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
     """从JSON字符串生成dynamic_constraint实例"""
     # 1. 解析JSON为字典
     data: Dict[str, Any] = json.loads(json_str)
+    
     # 2. 工具函数：将字典转为Expr对象（处理None情况）
     def parse_expr(expr_data: Optional[Dict[str, Any]]) -> Optional[Expr]:
         if expr_data is None:
@@ -57,26 +66,23 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
     # 3. 映射所有字段（基础字段直接取，Expr字段通过parse_expr转换）
     return dynamic_constraint(
         # 基础字段
-        num_travlers=data["num_travlers"],
-        rooms_per_night=data["rooms_per_night"],
-        change_hotel=data["change_hotel"],
+        num_travlers=int(data["num_travlers"]),
+        children_num=int(data["children_num"]),
+        rooms_per_night=int(data["rooms_per_night"]),
+        multi_stage=data["multi_stage"],
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
-        daily_total_meal_time=parse_expr(data.get("daily_total_meal_time")),
+        daily_total_restaurant_time=parse_expr(data.get("daily_total_restaurant_time")),
         daily_transportation_time=parse_expr(data.get("daily_transportation_time")),
         total_active_time=parse_expr(data.get("total_active_time")),
         total_queue_time=parse_expr(data.get("total_queue_time")),
         total_restaurant_time=parse_expr(data.get("total_restaurant_time")),  # 保持原始拼写
         total_transportation_time=parse_expr(data.get("total_transportation_time")),
-        
-        # POI相关
-        num_attractions_per_day=parse_expr(data.get("num_attractions_per_day")),
-        num_restaurants_per_day=parse_expr(data.get("num_restaurants_per_day")),
-        num_hotels_per_day=parse_expr(data.get("num_hotels_per_day")),
+
         
         # 交通相关
-        infra_city_transportation=data.get("infra_city_transportation", "none"),  # 使用默认值
+        infra_city_transportation=data.get("infra_city_transportation", None),  # 使用默认值
         
         # 预算相关
         total_budget=parse_expr(data.get("total_budget")),
@@ -91,9 +97,8 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         daily_total_transportation_budget=parse_expr(data.get("daily_total_transportation_budget")),
         
         # 额外信息
-        extra=data.get("extra")
+        extra=data.get("extra") or ""
     )
-
 def ir_to_json(ir: IR) -> str:
     """将IR实例序列化为JSON字符串"""
     # 先将IR转为字典，约束字段通过to_dict()序列化
@@ -105,12 +110,10 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
         # 基础字段
-        "num_travlers", "rooms_per_night", "change_hotel",
+        "num_travlers", "rooms_per_night","children_num","multi_stage"
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
         "total_active_time", "total_queue_time", "total_restaurant_time", "total_transportation_time",
-        # POI 相关
-        "num_attractions_per_day", "num_restaurants_per_day", "num_hotels_per_day",
         # 交通相关
         "infra_city_transportation",
         # 预算相关
@@ -133,6 +136,194 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
+ir_json = """
+  {
+    "start_date": "2025年6月10日",
+    "peoples": 2,
+    "total_travel_days": 9,
+    "children_num": 1,
+    "budgets": 7000,
+    "stages" :  [ 
+        {
+            "original_city": "深圳",
+            "destinate_city": "上海",
+            "travel_days" : 3,
+            "attraction_constraints": {
+            "type": "op",
+            "op": "and",
+            "left": {
+                "type": "op",
+                "op": ">=",
+                "left": {"type": "field", "field": "rating"},
+                "right": {"type": "value", "value": 4.5}
+            },
+            "right": {
+                "type": "op",
+                "op": "<=",
+                "left": {"type": "field", "field": "cost"},
+                "right": {"type": "value", "value": 800}
+            }
+            },
+            "accommodation_constraints": {
+            "type": "op",
+            "op": "or",
+            "left": {
+                "type": "op",
+                "op": ">=",
+                "left": {"type": "field", "field": "rating"},
+                "right": {"type": "value", "value": 4.5}
+            },
+            "right": {
+                "type": "op",
+                "op": "<=",
+                "left": {"type": "field", "field": "cost"},
+                "right": {"type": "value", "value": 800}
+            }
+            },
+            "restaurant_constraints": null
+        },
+        {
+            "original_city": "上海",
+            "destinate_city": "深圳",
+            "travel_days" : 6,
+            "attraction_constraints": null,
+            "accommodation_constraints":   {
+                "type": "op",
+                "op": "or",
+                "left":{
+                "type": "op",
+                "op": "include",
+                "left": {
+                    "type": "field",
+                    "field": "feature"
+                },
+                "right": {
+                    "type": "value",
+                    "value": "早餐"
+                }
+                },
+                "right": {
+                "type": "op",
+                "op": "include",
+                "left": {
+                    "type": "field",
+                    "field": "feature"
+                },
+                "right": {
+                    "type": "value",
+                    "value": "早点"
+                }
+                }
+            },
+            "restaurant_constraints": null
+        }
+    ],
+    "departure_transport_constraints": {
+      "type": "op",
+      "op": "==",
+      "left": {"type": "field", "field": "origin_station"},
+      "right": {"type": "value", "value": "南京南站"}
+    },
+    "back_transport_constraints": null,
+    "intermediate_transport_constraints": null
+  }
+"""
+# ir = ir_from_json(ir_json)
+# print(ir_to_json(ir))
+dc = """  {
+    "num_travlers": 2,
+    "rooms_per_night": 1,
+    "children_num" : 1,
+    "multi_stage": true,
+    "daily_total_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_time" },
+      "right": { "type": "value", "value": 840 }
+    },
+    "daily_queue_time": null,
+    "daily_total_restaurant_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_restaurant_time" },
+      "right": { "type": "value", "value": 120 }
+    },
+    "daily_transportation_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_transportation_time" },
+      "right": { "type": "value", "value": 150 }
+    },
+    "total_active_time": null,
+    "total_queue_time": null,
+    "total_restaurant_time": null,
+    "total_transportation_time": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "total_transportation_time" },
+      "right": { "type": "value", "value": 600 }
+    },
+
+    "num_attractions_per_day": {
+      "type": "op",
+      "op": "==",
+      "left": { "type": "field", "field": "num_attractions_per_day" },
+      "right": { "type": "value", "value": 1 }
+    },
+    "num_restaurants_per_day": {
+      "type": "op",
+      "op": "==",
+      "left": { "type": "field", "field": "num_restaurants_per_day" },
+      "right": { "type": "value", "value": 3 }
+    },
+    "num_hotels_per_day": {
+      "type": "op",
+      "op": "==",
+      "left": { "type": "field", "field": "num_hotels_per_day" },
+      "right": { "type": "value", "value": 1 }
+    },
+
+    "infra_city_transportation": {"深圳市": "public_transportation"},
+
+    "total_budget": null,
+    "total_meal_budget": null,
+    "total_attraction_ticket_budget": null,
+    "total_hotel_budget": null,
+    "total_transportation_budget": null,
+    "daily_total_budget": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_cost" },
+      "right": { "type": "value", "value": 2000 }
+    },
+    "daily_total_meal_budget": null,
+    "daily_total_attraction_ticket_budget": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_total_attraction_cost" },
+      "right": { "type": "value", "value": 300 }
+    },
+    "daily_total_hotel_budget": null,
+    "daily_total_transportation_budget": {
+      "type": "op",
+      "op": "<=",
+      "left": { "type": "field", "field": "daily_transportation_cost" },
+      "right": { "type": "value", "value": 350 }
+    },
+
+    "extra": "
+  # 额外动态约束示例：行程中至少包含一家博物馆相关景点(想去某某景点，想吃某某菜品，等等可以参考指南)
+  self.model.must_have_museum = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_attr[d, a]
+          for d in self.model.days
+          for a in self.model.attractions
+          if ('博物馆' in self.model.attr_data[a]['type']) >= 1
+  )"
+  }
+"""
+
+# print(dynamic_constraint_to_dict(dc_ret))
 def _escape_newlines_inside_strings(s: str) -> str:
     """
     在 JSON 文本里，仅在**字符串常量**内部，把裸 '\n' 和 '\r' 转义成 '\\n' 和 '\\r'。
@@ -161,6 +352,8 @@ def _escape_newlines_inside_strings(s: str) -> str:
         else:
             out.append(ch)
     return "".join(out)
+
+
 def extract_json_block(text: str) -> Optional[str]:
     """
     提取形如 \"\"\"json ... \"\"\" 的字符串块，返回最后一个匹配项
@@ -298,7 +491,7 @@ async def main():
 
 async def test_static():
     import time
-    test_problem = "2025年7月1日上午，我将从武汉大学地铁站启程前往厦门，开启为期6天的旅行，并于7月6日晚搭乘高铁返程。出发交通指定搭乘G2045次高铁，本次旅行预算控制在20000元以内，期望能深入体验厦门的本地文化与自然风景。请优先安排POI评分高的景点、餐厅与住宿，入住三星级以上宾馆，要求含早餐，且至少吃一次福建菜，并确保每日动线紧凑、交通方便，提升整体出行舒适度。"
+    test_problem = "我计划于2025年08月28日从上海市出发，先前往洛阳市旅游3天，随后于2025年08月30日晚乘坐高铁前往广州市继续游玩6天，总预算31000元以内，尽可能减少通勤时间。在广州市期间，我会游览仁威祖庙、邓世昌纪念馆和珠江琶醍啤酒文化创意艺术区，并考虑入住维也纳国际酒店(广州白云站石井地铁站店)或美景大酒店。2025年08月28日上午从上海出发，2025年09月05日晚返回。"
     try:
         print('正在测试...')
         begin = time.time()
@@ -314,7 +507,7 @@ async def test_static():
 
 async def test_dynamic():
     import time
-    test_problem = "我计划于2025年10月15日至19日从广州前往北京开展为期五天的高品质双人旅行，总预算为20000元，需满足以下需求：全程入住四星级及以上标准酒店，行程中须包含颐和园、恭王府博物馆等风景名胜，并安排一次正宗老北京烤鸭体验。15日早上从洛阳龙门站出发，19日晚返回洛阳。返程指定搭乘G651次列车。每日行程需兼顾热门景点与合理动线，避免过度奔波，市内交通以打车为主，整体行程注重舒适性与文化深度，尽量延长游玩时间、减少通勤和排队时间。"
+    test_problem = "我计划于2025年11月03日上午从深圳市出发，先前往贵阳市进行5天4晚旅行，随后于2025年11月07日晚间乘坐高铁抵达广州市，继续开展7天7晚的行程，整个旅程共计12天11晚，总预算为82100元。在贵阳市的旅途中，行程中需有一餐含桑葚，并尽可能延长游玩时间、缩减排队时间。在广州市期间，我会游览广州塔，入住宜必思酒店(广州越秀公园地铁站店)，优先考虑排队时间短、能高效用餐的选项。所有旅行期间，市内交通全程采用公交。2025年11月14日晚间从广州市返程。"
     try:
         print('正在测试...')
         begin = time.time()
@@ -377,7 +570,7 @@ async def test():
     print(f'耗时：{(end-begin):2f}s')
 
 if __name__ == '__main__':
-    asyncio.run(test())
-    # asyncio.run(test_dynamic())
+    # asyncio.run(test_static())
+    asyncio.run(test_dynamic())
     # asyncio.run(test_objective())
     # asyncio.run(test())

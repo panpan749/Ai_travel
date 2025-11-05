@@ -8,16 +8,21 @@ static: |
   ## IR数据结构说明
   IR包含以下字段：
   - start_date: 旅行开始日期（格式：YYYY年MM月DD日, str）
-  - peoples: 旅行人数，默认1人（int）
-  - travel_days: 旅行天数，由用户需求解析，包括出发日和返程日（int）
-  - original_city: 出发城市，由用户需求解析（str），如深圳市
-  - destinate_city: 目的地城市，由用户需求解析（str），如上海市
+  - peoples: 旅行总人数（包括幼儿），默认1人（int）
+  - children_num: 旅行中的幼儿人数，默认0人 （int）
+  - total_travel_days: 旅行总天数，由用户需求解析，包括出发日和返程日（int）
   - budgets: 总预算（int，单位：元，默认为0表示无预算限制）
-  - attraction_constraints: 景点选择约束（Expr表达式树，根据实际问题可选）
-  - accommodation_constraints: 住宿选择约束（Expr表达式树，根据实际问题可选）
-  - restaurant_constraints: 餐厅选择约束（Expr表达式树，根据实际问题可选）
-  - departure_transport_constraints: 去程交通选择约束（Expr表达式树，根据实际问题可选）
-  - back_transport_constraints: 回程交通选择约束（Expr表达式树，根据实际问题可选）
+  - departure_transport_constraints: 去程交通选择约束（Expr表达式树，根据实际问题可选），若为多阶段旅行，则表示从出发城市到中转城市的跨城交通
+  - back_transport_constraints: 回程交通选择约束（Expr表达式树，根据实际问题可选），若为多阶段旅行，则表示从第二个旅游城市回到出发城市的跨城交通
+  - intermediate_transport_constraints: 在多阶段旅行中，针对中转跨城交通的选择约束（Expr表达式树，根据实际问题可选），即中转城市到下一个城市的跨城交通
+  - stages: 旅行的阶段列表，包含若干stage，每个stage包含以下字段：
+    - original_city: 当前阶段的出发城市，由用户需求解析（str），如深圳市，若用户行程并非多阶段（即有多个目的地城市），则为用户的出发城市
+    - destinate_city: 当前阶段的目的地城市，由用户需求解析（str），如上海市，若旅行仅包含一个目的城市，则为用户的目的城市
+    - travel_days: 当前阶段的游玩天数，由用户需求解析而来，（int）
+    - attraction_constraints: 当前阶段的景点选择约束（Expr表达式树，根据实际问题可选）
+    - accommodation_constraints: 当前阶段的住宿选择约束（Expr表达式树，根据实际问题可选）
+    - restaurant_constraints: 当前阶段的餐厅选择约束（Expr表达式树，根据实际问题可选）
+
 
   ## 表达式树（Expr）结构
   约束条件使用表达式树表示，支持以下节点类型：
@@ -146,16 +151,16 @@ static: |
   * 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。 
   * 除非特别说明，否则所有的大于号和小于号都默认取等，即>=, <=
 
-  * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
+  * 不同的阶段中的静态约束可能不同，若用户未明确提及，则静态约束默认是针对行程的所有阶段，每一个阶段你都必须正确地写出完整的静态约束。
+  * **重要**：用户针对总体行程，餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
   - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
   - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要考虑。
 
   * **重要**: 虽然某些动态的需求不需要转换为静态约束的Expr表达树，但是你必须正确填写IR的字段，比如：
       - start_date: 旅行开始日期（格式：YYYY年MM月DD日, str）
-      - peoples: 旅行人数，默认1人（int）
-      - travel_days: 旅行天数，由用户需求解析，包括出发日和返程日（int）
-      - original_city: 出发城市，由用户需求解析（str）
-      - destinate_city: 目的地城市，由用户需求解析（str）
+      - peoples: 旅行总人数，默认1人（int）
+      - children: 旅行儿童人数，默认0人（int）
+      - total_travel_days: 旅行总天数，由用户需求解析，包括出发日和返程日（int）
       - budgets: 总预算（int，单位：元，默认为0表示无预算限制）
       (虽然预算是动态约束，但是这里你仍然需要填写这个budgets，因为这是配置，不是Expr表达树)
 
@@ -172,10 +177,12 @@ static: |
   ### 构建Pipeline
   1. 分析用户需求，分点列出用户的需求，注意显式需求和隐式需求，对于显式需求，写下"[显式需求]"作为标记，对于隐式需求，写下"[隐式需求]"作为标记，确保没有遗漏。
   2. 过滤掉任何的动态需求或优化目标，只处理用户的静态约束
-  3. 将剩余的静态约束按景点，餐厅，酒店和跨城交通(注意，只需分析出发城市与目标城市的跨城往返交通，无需考虑市内的交通)四类
-  4. 回顾指南中的示例以及Schema中的协议，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  5. 回顾IR中的字段，填充每一个字段的值。
-  6. 输出以```json和```包裹的JSON格式的IR。
+  3. 识别出针对特定阶段的静态约束，若用户未明确提及针对特定的阶段，则默认静态约束针对所有阶段
+  4. 对于每一个阶段，将其静态约束按景点，餐厅，酒店三类
+  5. 回顾指南中的示例以及Schema中的协议，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
+  6. 若存在跨城交通的静态约束，则根据用户的约束内容，将其作用于其归属的跨城交通区间（出发，中转或返程）(注意，只需分析出发城市与目标城市的跨城往返交通，无需考虑市内的交通)
+  7. 回顾IR中的字段，填充每一个字段的值。
+  8. 输出以```json和```包裹的JSON格式的IR。
 
   ### 景点约束示例
   1. 用户希望游玩的景点评分在4.5分以上：
@@ -281,7 +288,7 @@ static: |
       "value": "美景大酒店"
     }
   }
-  解释：在本场景下，默认整个旅程中只住一家酒店，所以用户希望入住"美景大酒店"不是存在量词了（即每晚的酒店名称都应该是美景大酒店），所以应当被转换为静态约束
+  解释：在本场景下，默认一个阶段中只住一家酒店，所以用户希望入住"美景大酒店"不是存在量词了（即每晚的酒店名称都应该是美景大酒店），所以应当被转换为静态约束
 
   4. 用户希望入住的酒店含早餐:
   {
@@ -324,6 +331,9 @@ static: |
   3. 用户希望品尝当地的特色川菜：
   存在量词（即在行程中至少吃到一家典型川菜，如火锅），无需转换为静态约束，忽略
 
+  4. 用户先去青岛玩，再去上海玩，希望在上海观览东方明珠：
+  存在量词，无需转换为静态约束，忽略
+
   ### 跨城交通约束示例
   1. 用户希望搭乘编号为'GN05'的火车前往上海:
   {"type": "op", "op": "==", "left": {"type": "field", "field": "train_number"}, "right": {"type": "value", "value": "GN05"}}
@@ -345,55 +355,97 @@ static: |
   3. 所有字段涉及的英文均为小写
   4. 你必须先用自然语言输出你按指南执行的分析过程，然后输出以```json和```包裹的JSON结果
 
-  ### 示例输出格式
+  ### 示例输出格式(以多阶段旅行为例)
   ```json
   {
     "start_date": "2025年6月10日",
     "peoples": 2,
-    "travel_days": 3,
-    "original_city": "深圳",
-    "destinate_city": "上海",
+    "total_travel_days": 9,
+    "children_num": 1,
     "budgets": 7000,
-    "attraction_constraints": {
-      "type": "op",
-      "op": "and",
-      "left": {
-        "type": "op",
-        "op": ">=",
-        "left": {"type": "field", "field": "rating"},
-        "right": {"type": "value", "value": 4.5}
-      },
-      "right": {
-        "type": "op",
-        "op": "<=",
-        "left": {"type": "field", "field": "cost"},
-        "right": {"type": "value", "value": 800}
-      }
-    },
-    "accommodation_constraints": {
-      "type": "op",
-      "op": "or",
-      "left": {
-        "type": "op",
-        "op": ">=",
-        "left": {"type": "field", "field": "rating"},
-        "right": {"type": "value", "value": 4.5}
-      },
-      "right": {
-        "type": "op",
-        "op": "<=",
-        "left": {"type": "field", "field": "cost"},
-        "right": {"type": "value", "value": 800}
-      }
-    },
-    "restaurant_constraints": null,
+    "stages" :  [ 
+        {
+            "original_city": "深圳",
+            "destinate_city": "上海",
+            "travel_days" : 3,
+            "attraction_constraints": {
+            "type": "op",
+            "op": "and",
+            "left": {
+                "type": "op",
+                "op": ">=",
+                "left": {"type": "field", "field": "rating"},
+                "right": {"type": "value", "value": 4.5}
+            },
+            "right": {
+                "type": "op",
+                "op": "<=",
+                "left": {"type": "field", "field": "cost"},
+                "right": {"type": "value", "value": 800}
+            }
+            },
+            "accommodation_constraints": {
+            "type": "op",
+            "op": "or",
+            "left": {
+                "type": "op",
+                "op": ">=",
+                "left": {"type": "field", "field": "rating"},
+                "right": {"type": "value", "value": 4.5}
+            },
+            "right": {
+                "type": "op",
+                "op": "<=",
+                "left": {"type": "field", "field": "cost"},
+                "right": {"type": "value", "value": 800}
+            }
+            },
+            "restaurant_constraints": null
+        },
+        {
+            "original_city": "上海",
+            "destinate_city": "深圳",
+            "travel_days" : 6,
+            "attraction_constraints": null,
+            "accommodation_constraints":   {
+                "type": "op",
+                "op": "or",
+                "left":{
+                "type": "op",
+                "op": "include",
+                "left": {
+                    "type": "field",
+                    "field": "feature"
+                },
+                "right": {
+                    "type": "value",
+                    "value": "早餐"
+                }
+                },
+                "right": {
+                "type": "op",
+                "op": "include",
+                "left": {
+                    "type": "field",
+                    "field": "feature"
+                },
+                "right": {
+                    "type": "value",
+                    "value": "早点"
+                }
+                }
+            },
+            "restaurant_constraints": null
+        }
+    ],
     "departure_transport_constraints": {
       "type": "op",
       "op": "==",
       "left": {"type": "field", "field": "origin_station"},
       "right": {"type": "value", "value": "南京南站"}
     },
-    "back_transport_constraints": null
+    "back_transport_constraints": null,
+    "intermediate_transport_constraints": null
   }
   ```
 
@@ -411,8 +463,9 @@ dynamic: |
 
   ### 通用约束
   - num_travlers: [int] 旅行人数, 默认为1
-  - rooms_per_night: [int] 每晚的房间数量，默认为人数 / 2取上整数，但当用户有特殊需求时需按用户的需求配置
-  - change_hotel: [bool] 是否在旅程中更换酒店，默认为False，除非用户有明确要求
+  - rooms_per_night: [int] 每晚的房间数量，默认为人数 / 2取上整数，且孩童不计入人数（例如总共3个人，其中一个是儿童，则也只需要一间房），但当用户有特殊需求时需按用户的需求配置,如用户明确提及了一间房只住一个人。
+  - children_num: [int] 孩童数量，默认为0
+  - multi_stage: [bool] 是否是多阶段旅行（即有多个目标城市要游玩）
 
   ### 时间相关约束，单位为分钟
   - daily_total_time: [Expr] 每日总活动时间约束，默认小于等于840分钟
@@ -424,14 +477,10 @@ dynamic: |
   - total_restaurant_time: [Expr] 总用餐时间约束
   - total_transportation_time: [Expr] 总交通时间约束
 
-  ### POI相关约束
-  - num_attractions_per_day: [Expr] 每日景点数量约束，默认每日一个景点
-  - num_restaurants_per_day: [Expr] 每日餐厅数量约束，默认每日三餐
-  - num_hotels_per_day: [Expr] 每日酒店数量约束，默认每日一个酒店，默认全程住一家酒店
-
   ### 交通相关约束
-  - infra_city_transportation: [str] 市内交通方式（'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制；
-  注意：只要不是打车，其他都算public_transportation,如轮渡
+  - infra_city_transportation: [dict] 市内交通方式, key为城市名，如深圳市，value为以下可选值：
+  （'public_transportation'(公共交通，如公交和地铁), 'taxi'(打车), 'none'），默认为'none'，即不受限制；
+  注意：只要不是打车（的士），其他都算public_transportation,如轮渡
 
   ### 预算相关约束 默认不设限制
   - total_budget: [Expr] 总预算约束,注意与人均/每日预算的区分
@@ -567,199 +616,206 @@ dynamic: |
   ## pyomo schema设置
   ```python
   def make(self, cfg: dynamic_constraint):
-      self.cfg = cfg
-      pois = [a_id for a_id in self.poi_data['attractions']] + [h_id for h_id in self.poi_data['accommodations']]
+    city_to_day_range,day_to_city = self.get_city_to_day_range() #这里的返回值是两个字典，分别记录了城市到天数的映射关系和天数到城市的映射关系，比如第1天到第6天（包括两端）在北京，第7天到第10天在深圳
+    self.cfg = cfg
 
-      attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
-      hotel_dict = self.poi_data['accommodations']
-      restaurant_dict = self.poi_data['restaurants']
-      
-      days = range(1,self.ir.travel_days + 1)
-      self.model.days = pyo.Set(initialize=days)
-      self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
-      self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
-      self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
-      self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
-      self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
-      self.model.pois = pyo.Set(initialize=pois)
+    attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
+    hotel_dict = self.poi_data['accommodations']
+    restaurant_dict = self.poi_data['restaurants']
+    
+    days = range(1,self.ir.travel_days + 1)
+    self.model.days = pyo.Set(initialize=days)
+    self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
+    self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
+    self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
+    self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
+    self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
 
-      self.model.attr_data = pyo.Param(
-          self.model.attractions,
-          initialize=lambda m, a: {
-              'id': attraction_dict[a]['id'],
-              'name': attraction_dict[a]['name'],
-              'cost': float(attraction_dict[a]['cost']),
-              'type': attraction_dict[a]['type'],
-              'rating': float(attraction_dict[a]['rating']),
-              'duration': float(attraction_dict[a]['duration'])
-          },
-          within=pyo.Any
-      )
+    self.model.attr_data = pyo.Param(
+        self.model.attractions,
+        initialize=lambda m, a: {
+            'id': attraction_dict[a]['id'],
+            'name': attraction_dict[a]['name'],
+            'cost': float(attraction_dict[a]['cost']),
+            'type': attraction_dict[a]['type'],
+            'rating': float(attraction_dict[a]['rating']),
+            'duration': float(attraction_dict[a]['duration']),
+            'start_stage': int(attraction_dict[a]['start_stage']),
+            'end_stage': int(attraction_dict[a]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.hotel_data = pyo.Param(
-          self.model.accommodations,
-          initialize=lambda m, h: {
-              'id': hotel_dict[h]['id'],
-              'name': hotel_dict[h]['name'],
-              'cost': float(hotel_dict[h]['cost']),
-              'type': hotel_dict[h]['type'],
-              'rating': float(hotel_dict[h]['rating']),
-              'feature': hotel_dict[h]['feature']
-          },
-          within=pyo.Any
-      )
+    self.model.hotel_data = pyo.Param(
+        self.model.accommodations,
+        initialize=lambda m, h: {
+            'id': hotel_dict[h]['id'],
+            'name': hotel_dict[h]['name'],
+            'cost': float(hotel_dict[h]['cost']),
+            'type': hotel_dict[h]['type'],
+            'rating': float(hotel_dict[h]['rating']),
+            'feature': hotel_dict[h]['feature'],
+            'start_stage': int(attraction_dict[h]['start_stage']),
+            'end_stage': int(attraction_dict[h]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.rest_data = pyo.Param(
-          self.model.restaurants,
-          initialize=lambda m, r: {
-              'id': restaurant_dict[r]['id'],
-              'name': restaurant_dict[r]['name'],
-              'cost': float(restaurant_dict[r]['cost']),
-              'type': restaurant_dict[r]['type'],
-              'rating': float(restaurant_dict[r]['rating']),
-              'recommended_food': restaurant_dict[r]['recommended_food'],
-              'queue_time': float(restaurant_dict[r]['queue_time']),
-              'duration': float(restaurant_dict[r]['duration'])
-          },
-          within=pyo.Any
-      )
+    self.model.rest_data = pyo.Param(
+        self.model.restaurants,
+        initialize=lambda m, r: {
+            'id': restaurant_dict[r]['id'],
+            'name': restaurant_dict[r]['name'],
+            'cost': float(restaurant_dict[r]['cost']),
+            'type': restaurant_dict[r]['type'],
+            'rating': float(restaurant_dict[r]['rating']),
+            'recommended_food': restaurant_dict[r]['recommended_food'],
+            'queue_time': float(restaurant_dict[r]['queue_time']),
+            'duration': float(restaurant_dict[r]['duration']),
+            'start_stage': int(attraction_dict[r]['start_stage']),
+            'end_stage': int(attraction_dict[r]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.train_departure_data = pyo.Param(
-          self.model.train_departure,
-          initialize=lambda m, t: {
-              'train_number': self.cross_city_train_departure[t]['train_number'],
-              'cost': float(self.cross_city_train_departure[t]['cost']),
-              'duration': float(self.cross_city_train_departure[t]['duration']),
-              'origin_id': self.cross_city_train_departure[t]['origin_id'],
-              'origin_station': self.cross_city_train_departure[t]['origin_station'],
-              'destination_id': self.cross_city_train_departure[t]['destination_id'],
-              'destination_station': self.cross_city_train_departure[t]['destination_station']
-          },
-          within=pyo.Any
-      )
-      self.model.train_back_data = pyo.Param(
-          self.model.train_back,
-          initialize=lambda m, t: {
-              'train_number': self.cross_city_train_back[t]['train_number'],
-              'cost': float(self.cross_city_train_back[t]['cost']),
-              'duration': float(self.cross_city_train_back[t]['duration']),
-              'origin_id': self.cross_city_train_back[t]['origin_id'],
-              'origin_station': self.cross_city_train_back[t]['origin_station'],
-              'destination_id': self.cross_city_train_back[t]['destination_id'],
-              'destination_station': self.cross_city_train_back[t]['destination_station']
-          },
-          within=pyo.Any
-      )
+    self.model.train_departure_data = pyo.Param(
+        self.model.train_departure,
+        initialize=lambda m, t: {
+            'train_number': self.cross_city_train_departure[t]['train_number'],
+            'cost': float(self.cross_city_train_departure[t]['cost']),
+            'duration': float(self.cross_city_train_departure[t]['duration']),
+            'origin_id': self.cross_city_train_departure[t]['origin_id'],
+            'origin_station': self.cross_city_train_departure[t]['origin_station'],
+            'destination_id': self.cross_city_train_departure[t]['destination_id'],
+            'destination_station': self.cross_city_train_departure[t]['destination_station']
+        },
+        within=pyo.Any
+    )
+    self.model.train_back_data = pyo.Param(
+        self.model.train_back,
+        initialize=lambda m, t: {
+            'train_number': self.cross_city_train_back[t]['train_number'],
+            'cost': float(self.cross_city_train_back[t]['cost']),
+            'duration': float(self.cross_city_train_back[t]['duration']),
+            'origin_id': self.cross_city_train_back[t]['origin_id'],
+            'origin_station': self.cross_city_train_back[t]['origin_station'],
+            'destination_id': self.cross_city_train_back[t]['destination_id'],
+            'destination_station': self.cross_city_train_back[t]['destination_station']
+        },
+        within=pyo.Any
+    )
+    if self.cfg.multi_stage:
+        self.model.train_transfer = pyo.Set(initialize=self.cross_city_train_transfer.keys())
+        self.model.train_transfer_data = pyo.Param(
+            self.model.train_transfer,
+            initialize=lambda m, t: {
+                'train_number': self.cross_city_train_back[t]['train_number'],
+                'cost': float(self.cross_city_train_back[t]['cost']),
+                'duration': float(self.cross_city_train_back[t]['duration']),
+                'origin_id': self.cross_city_train_back[t]['origin_id'],
+                'origin_station': self.cross_city_train_back[t]['origin_station'],
+                'destination_id': self.cross_city_train_back[t]['destination_id'],
+                'destination_station': self.cross_city_train_back[t]['destination_station']
+            },
+            within=pyo.Any
+    )
+    ## variables
+    self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
+    self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
+    self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
+    self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
+    self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
+    self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+    if self.cfg.multi_stage:
+        self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+    ## last day hotel constraint
+    if self.ir.travel_days > 1:
+        def last_day_hotel_constraint(model,h):
+            N = self.ir.travel_days
+            return model.select_hotel[N-1,h] == model.select_hotel[N,h]
+        
+        self.model.last_day_hotel = pyo.Constraint(
+            self.model.accommodations,
+            rule=last_day_hotel_constraint
+        )
 
-      ## variables
-      self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
-      self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
-      self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
-      self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
-      self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
-      self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+    self.model.attr_hotel = pyo.Var(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        domain=pyo.Binary,
+        initialize=0,
+        bounds=(0, 1)
+    )
 
-      ## last day hotel constraint
-      if self.ir.travel_days > 1:
-          def last_day_hotel_constraint(model,h):
-              N = self.ir.travel_days
-              return model.select_hotel[N-1,h] == model.select_hotel[N,h]
-          
-          self.model.last_day_hotel = pyo.Constraint(
-              self.model.accommodations,
-              rule=last_day_hotel_constraint
-          )
+    def link_attr_hotel_rule1(model, d, a, h):
+        return model.attr_hotel[d, a, h] <= model.select_attr[d, a]
 
-      self.model.poi_poi = pyo.Var(
-          self.model.days, self.model.pois, self.model.pois,
-          domain=pyo.Binary,
-          initialize=0,
-          bounds=(0, 1)
-      )
+    def link_attr_hotel_rule2(model, d, a, h):
+        return model.attr_hotel[d, a, h] <= model.select_hotel[d,h]
 
-      ## 一致性约束
-      def self_loop_constraint(model,d, p):
-          return model.poi_poi[d, p, p] == 0
-      
+    def link_attr_hotel_rule3(model, d, a, h):
+        return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
-      self.model.self_loop = pyo.Constraint(
-          self.model.days,self.model.pois,
-          rule=self_loop_constraint
-      )
+    self.model.link_attr_hotel1 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule1
+    )
+    self.model.link_attr_hotel2 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule2
+    )
+    self.model.link_attr_hotel3 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule3
+    )        
+    
+    self.model.unique_attr = pyo.Constraint(
+        self.model.attractions,
+        rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+    )
 
-      self.model.u = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals) ##描述景点的顺序
-      ## join
-      def a_degree_constraint_out(model,d,a):
-          return sum(model.poi_poi[d, a, p] for p in model.pois) == model.select_attr[d, a]
-      
-      def a_degree_constraint_in(model,d,a):
-          return sum(model.poi_poi[d, p, a] for p in model.pois) == model.select_attr[d, a]
-      
-      def h_degree_constraint_out(model,d,h):
-          return sum(model.poi_poi[d, h, p] for p in model.pois) == model.select_hotel[d, h]
-      
-      def h_degree_constraint_in(model,d,h):
-          return sum(model.poi_poi[d, p, h] for p in model.pois) == model.select_hotel[d, h]
-      
-      def mtz_rule(m,d,i,j):
-          M = len(self.model.attractions)
-          if i == j:
-              return pyo.Constraint.Skip
-          return m.u[d, i] - m.u[d, j] + M * m.poi_poi[d, i, j] <= M - 1
+    self.model.unique_rest = pyo.Constraint(
+        self.model.restaurants,
+        rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+    )
 
-      def u_rule(m,d,p):
-          M = len(self.model.attractions)
-          return m.select_attr[d,p] <= m.u[d,p] <= M * m.select_attr[d, p]
-      
-      self.model.a_degree_constraint_out = pyo.Constraint(
-          self.model.days, self.model.attractions,
-          rule=a_degree_constraint_out
-      )
-      self.model.a_degree_constraint_in = pyo.Constraint(
-          self.model.days, self.model.attractions, 
-          rule=a_degree_constraint_in
-      )
-      self.model.h_degree_constraint_out = pyo.Constraint(
-          self.model.days, self.model.accommodations, 
-          rule=h_degree_constraint_out
-      )
-      self.model.h_degree_constraint_in = pyo.Constraint(
-          self.model.days, self.model.accommodations, 
-          rule=h_degree_constraint_in
-      )
-      self.model.mtz = pyo.Constraint(
-          self.model.days, self.model.attractions, self.model.attractions,
-          rule=mtz_rule
-      )
-      self.model.u_rule = pyo.Constraint(
-          self.model.days, self.model.attractions,
-          rule=u_rule
-      )
-      
-      self.model.unique_attr = pyo.Constraint(
-          self.model.attractions,
-          rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
-      )
+    transfer_day = 1
+    if self.cfg.multi_stage:
+        transfer_day = self.ir.stages[0].travel_days
+    def same_hotel_rule(m, d, h):
+        if d == 1 or d == transfer_day + 1: #select_hotel 表示当天出去玩出发的酒店，用于计算交通
+            return pyo.Constraint.Skip
+        return m.select_hotel[d, h] == m.select_hotel[d-1, h]
+    
+    self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
-      self.model.unique_rest = pyo.Constraint(
-          self.model.restaurants,
-          rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
-      )
-      if not cfg.change_hotel:
-          def same_hotel_rule(m, d, h):
-              if d == 1:
-                  return pyo.Constraint.Skip
-              return m.select_hotel[d, h] == m.select_hotel[d-1, h]
-          self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
+    
+    ## 多阶段景点，酒店，餐饮约束
+    def stage_attr_rule(m, d, a):
+        return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
+    
+    def stage_hotel_rule(m, d, h):
+        return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
+    
+    def stage_rest_rule(m, d, r):
+        return m.select_rest[d, r] * (d - self.model.rest_data[r]['start_stage']) * (d - self.model.rest_data[r]['end_stage']) <= 0
+    
+    self.model.stage_attr = pyo.Constraint(self.model.days, self.model.attractions, rule=stage_attr_rule)
+    self.model.stage_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=stage_hotel_rule)
+    self.model.stage_rest = pyo.Constraint(self.model.days, self.model.restaurants, rule=stage_rest_rule)
 
-      if len(self.cross_city_train_departure) > 0:
-          self.model.one_departure = pyo.Constraint(
-              rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
-          )
-      if len(self.cross_city_train_back) > 0:
-          self.model.one_back = pyo.Constraint(
-              rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
-          )
+
+    if len(self.cross_city_train_departure) > 0:
+        self.model.one_departure = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
+        )
+    if len(self.cross_city_train_back) > 0:
+        self.model.one_back = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
+        )
+    if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
+        self.model.one_transfer = pyo.Constraint(
+            rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+        )
 
     {extra代码占位}
   ```
@@ -801,7 +857,7 @@ dynamic: |
     - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
     - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要忽略。
 
-  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，默认在extra中的代码对于每一个菜品(景点)都需要满足：
+  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，默认在extra中的代码对于每一个菜品(景点)都需要满足,除非用户明确提到了"或"的关系：
     - 例如: 用户问题：我计划从重庆前往南京进行三天两晚文化+自然之旅，从2025年7月10日出发，7月12日返回，预算30000元，尽可能花光预算。想找评分4.5以上、价格低于600元每晚的高品质住宿；打卡午朝门公园、中华门、美龄宫等热门景点；餐厅人均消费在200元以内；交通方式以地铁公交为主。
     - 分析：这里用户提到了多个景点，则每个景点都要满足（餐厅，菜品相关的约束也同理），代码:
     {
@@ -832,7 +888,8 @@ dynamic: |
     )         
     "
     }
-  
+  * 无论用户是否有特殊的住房配置，儿童都不计入住房的人数中。
+  * 用户的行程可能是多阶段的旅行，注意用户提及的约束是否仅作用于某一个城市，默认情况下，若用户无特殊说明，默认其约束作用在所有阶段。
   * 你需要参考约束构建指南中的一些示例来辅助你构建约束条件。
   * 对于用户没有提及的动态约束条件，若有默认值则按默认值输出，否则置为Null。
   * 先用自然语言输出你遵循构建指南时的详细分析，再输出dynamic_constraint。
@@ -846,7 +903,7 @@ dynamic: |
   3. 过滤掉无法定量分析也没有明确提及实体的语义不明的无效需求
   4. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
   5. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  6. 回顾用户的需求，检查是否有遗漏的隐晦需求，确保提取了所有符合用户偏好的需求。
+  6. 回顾用户的需求，检查是否有遗漏的隐晦需求（包含有实际意义的实体），确保提取了所有符合用户偏好的需求。
   7. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
   8. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
 
@@ -936,6 +993,60 @@ dynamic: |
   "
   }
 
+  示例3：用户计划于2025年10月03日从深圳市出发，先前往厦门市旅游4天，再前往上海市游玩3天；用户想入住汉庭酒店的上海黄兴路地铁站分店，并考虑在柒厢食事雅谈(大宁绿地商业街店)、狗莉莉咖啡GOLiLi Coffee&Bar或星巴克(上海前滩桐晚路店)用餐。
+  分析：该用户计划一场多阶段的旅行；对于入住酒店的需求，这是静态需求，忽略；对于饮食的动态需求，由于没有明确提及这些需求是作用在上海阶段的，故默认作用于全程。且由于用户提到的是或，所以满足一个即可。
+  {
+  "extra": "
+    self.model.must_have_rest = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_rest[d, r]
+          for d in self.model.days
+          for r in self.model.restaurants
+          if ('柒厢食事雅谈(大宁绿地商业街店)' in self.model.rest_data[r]['name'] or '狗莉莉咖啡GOLiLi Coffee' in self.model.rest_data[r]['name'] or '星巴克(上海前滩桐晚路店)' in self.model.rest_data[r]['name'])
+      ) >= 1
+    ) 
+  "
+  }
+
+  示例4：我计划于2025年08月02日从广州市出发，先前往重庆市旅游4天，再前往青岛市旅游4天。重庆旅行期间全程坚持公交出行，重点游览重庆长江索道景区；在青岛期间，全程坚持打车出行，我会游览嘉定山公园和冰山之角，就餐选择吉祥馄饨(市北水清沟店)等经济实惠的餐厅。
+  分析：该用户计划一场多阶段旅行，且在不同阶段有不同的动态约束（交通，景点和餐饮）
+  {
+  "infra_city_transportation" : {"重庆市": "public_transportation", "青岛市": "taxi"},
+  "extra": "
+    self.model.must_have_attr_chongqing_1 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_attr[d, a]
+          for d in range(city_to_day_range["重庆市"][0],city_to_day_range["重庆市"][1] + 1) #注意这里要+1确保末天取得到
+          for a in self.model.attractions
+          if ('长江索道' in self.model.attr_data[a]['name'])
+      ) >= 1
+    )
+    self.model.must_have_attr_qingdao_1 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_attr[d, a]
+          for d in range(city_to_day_range["青岛市"][0],city_to_day_range["青岛市"][1] + 1) #注意这里要+1确保末天取得到
+          for a in self.model.attractions
+          if ('嘉定山公园' in self.model.attr_data[a]['name'])
+      ) >= 1
+    )
+    self.model.must_have_attr_qingdao_2 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_attr[d, a]
+          for d in range(city_to_day_range["青岛市"][0],city_to_day_range["青岛市"][1] + 1) #注意这里要+1确保末天取得到
+          for a in self.model.attractions
+          if ('冰山之角' in self.model.attr_data[a]['name'])
+      ) >= 1
+    )
+    self.model.must_have_rest_qingdao_1 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_rest[d, r]
+          for d in range(city_to_day_range["青岛市"][0],city_to_day_range["青岛市"][1] + 1) #注意这里要+1确保末天取得到
+          for r in self.model.restaurants
+          if ('吉祥馄饨(市北水清沟店)' in self.model.rest_data[r]['name'])
+      ) >= 1
+    ) 
+  "
+  }
   注意：严谨编码，在编写extra中的代码时，你必须考虑当前的作用域，比如pyo的model在此处应该写self.model而不是model，不要虚构任何没有在pyomo schema的代码上下文中定义过的变量或不符合python语法的代码。
 
 
@@ -944,7 +1055,8 @@ dynamic: |
   {
     "num_travlers": 2,
     "rooms_per_night": 1,
-    "change_hotel": false,
+    "children_num" : 1,
+    "multi_stage": false,
     "daily_total_time": {
       "type": "op",
       "op": "<=",
@@ -993,7 +1105,7 @@ dynamic: |
       "right": { "type": "value", "value": 1 }
     },
 
-    "infra_city_transportation": "public_transportation",
+    "infra_city_transportation": {"深圳市": "public_transportation"},
 
     "total_budget": null,
     "total_meal_budget": null,
@@ -1059,235 +1171,207 @@ objective: |
   此章节指示了针对旅行攻略约束求解的变量定义以及各个实体的属性定义，具体见以下代码：
   ```python
   def make(self, cfg: dynamic_constraint):
-      self.cfg = cfg
-      pois = [a_id for a_id in self.poi_data['attractions']] + [h_id for h_id in self.poi_data['accommodations']]
+    city_to_day_range,day_to_city = self.get_city_to_day_range() #这里的返回值是两个字典，分别记录了城市到天数的映射关系和天数到城市的映射关系，比如第1天到第6天（包括两端）在北京，第7天到第10天在深圳
+    self.cfg = cfg
 
-      attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
-      hotel_dict = self.poi_data['accommodations']
-      restaurant_dict = self.poi_data['restaurants']
-      
-      days = range(1,self.ir.travel_days + 1)
-      self.model.days = pyo.Set(initialize=days)
-      self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
-      self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
-      self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
-      self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
-      self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
-      self.model.pois = pyo.Set(initialize=pois)
+    attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
+    hotel_dict = self.poi_data['accommodations']
+    restaurant_dict = self.poi_data['restaurants']
+    
+    days = range(1,self.ir.travel_days + 1)
+    self.model.days = pyo.Set(initialize=days)
+    self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
+    self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
+    self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
+    self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
+    self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
 
-      self.model.attr_data = pyo.Param(
-          self.model.attractions,
-          initialize=lambda m, a: {
-              'id': attraction_dict[a]['id'],
-              'name': attraction_dict[a]['name'],
-              'cost': float(attraction_dict[a]['cost']),
-              'type': attraction_dict[a]['type'],
-              'rating': float(attraction_dict[a]['rating']),
-              'duration': float(attraction_dict[a]['duration'])
-          },
-          within=pyo.Any
-      )
+    self.model.attr_data = pyo.Param(
+        self.model.attractions,
+        initialize=lambda m, a: {
+            'id': attraction_dict[a]['id'],
+            'name': attraction_dict[a]['name'],
+            'cost': float(attraction_dict[a]['cost']),
+            'type': attraction_dict[a]['type'],
+            'rating': float(attraction_dict[a]['rating']),
+            'duration': float(attraction_dict[a]['duration']),
+            'start_stage': int(attraction_dict[a]['start_stage']),
+            'end_stage': int(attraction_dict[a]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.hotel_data = pyo.Param(
-          self.model.accommodations,
-          initialize=lambda m, h: {
-              'id': hotel_dict[h]['id'],
-              'name': hotel_dict[h]['name'],
-              'cost': float(hotel_dict[h]['cost']),
-              'type': hotel_dict[h]['type'],
-              'rating': float(hotel_dict[h]['rating']),
-              'feature': hotel_dict[h]['feature']
-          },
-          within=pyo.Any
-      )
+    self.model.hotel_data = pyo.Param(
+        self.model.accommodations,
+        initialize=lambda m, h: {
+            'id': hotel_dict[h]['id'],
+            'name': hotel_dict[h]['name'],
+            'cost': float(hotel_dict[h]['cost']),
+            'type': hotel_dict[h]['type'],
+            'rating': float(hotel_dict[h]['rating']),
+            'feature': hotel_dict[h]['feature'],
+            'start_stage': int(attraction_dict[h]['start_stage']),
+            'end_stage': int(attraction_dict[h]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.rest_data = pyo.Param(
-          self.model.restaurants,
-          initialize=lambda m, r: {
-              'id': restaurant_dict[r]['id'],
-              'name': restaurant_dict[r]['name'],
-              'cost': float(restaurant_dict[r]['cost']),
-              'type': restaurant_dict[r]['type'],
-              'rating': float(restaurant_dict[r]['rating']),
-              'recommended_food': restaurant_dict[r]['recommended_food'],
-              'queue_time': float(restaurant_dict[r]['queue_time']),
-              'duration': float(restaurant_dict[r]['duration'])
-          },
-          within=pyo.Any
-      )
+    self.model.rest_data = pyo.Param(
+        self.model.restaurants,
+        initialize=lambda m, r: {
+            'id': restaurant_dict[r]['id'],
+            'name': restaurant_dict[r]['name'],
+            'cost': float(restaurant_dict[r]['cost']),
+            'type': restaurant_dict[r]['type'],
+            'rating': float(restaurant_dict[r]['rating']),
+            'recommended_food': restaurant_dict[r]['recommended_food'],
+            'queue_time': float(restaurant_dict[r]['queue_time']),
+            'duration': float(restaurant_dict[r]['duration']),
+            'start_stage': int(attraction_dict[r]['start_stage']),
+            'end_stage': int(attraction_dict[r]['end_stage'])
+        },
+        within=pyo.Any
+    )
 
-      self.model.train_departure_data = pyo.Param(
-          self.model.train_departure,
-          initialize=lambda m, t: {
-              'train_number': self.cross_city_train_departure[t]['train_number'],
-              'cost': float(self.cross_city_train_departure[t]['cost']),
-              'duration': float(self.cross_city_train_departure[t]['duration']),
-              'origin_id': self.cross_city_train_departure[t]['origin_id'],
-              'origin_station': self.cross_city_train_departure[t]['origin_station'],
-              'destination_id': self.cross_city_train_departure[t]['destination_id'],
-              'destination_station': self.cross_city_train_departure[t]['destination_station']
-          },
-          within=pyo.Any
-      )
-      self.model.train_back_data = pyo.Param(
-          self.model.train_back,
-          initialize=lambda m, t: {
-              'train_number': self.cross_city_train_back[t]['train_number'],
-              'cost': float(self.cross_city_train_back[t]['cost']),
-              'duration': float(self.cross_city_train_back[t]['duration']),
-              'origin_id': self.cross_city_train_back[t]['origin_id'],
-              'origin_station': self.cross_city_train_back[t]['origin_station'],
-              'destination_id': self.cross_city_train_back[t]['destination_id'],
-              'destination_station': self.cross_city_train_back[t]['destination_station']
-          },
-          within=pyo.Any
-      )
+    self.model.train_departure_data = pyo.Param(
+        self.model.train_departure,
+        initialize=lambda m, t: {
+            'train_number': self.cross_city_train_departure[t]['train_number'],
+            'cost': float(self.cross_city_train_departure[t]['cost']),
+            'duration': float(self.cross_city_train_departure[t]['duration']),
+            'origin_id': self.cross_city_train_departure[t]['origin_id'],
+            'origin_station': self.cross_city_train_departure[t]['origin_station'],
+            'destination_id': self.cross_city_train_departure[t]['destination_id'],
+            'destination_station': self.cross_city_train_departure[t]['destination_station']
+        },
+        within=pyo.Any
+    )
+    self.model.train_back_data = pyo.Param(
+        self.model.train_back,
+        initialize=lambda m, t: {
+            'train_number': self.cross_city_train_back[t]['train_number'],
+            'cost': float(self.cross_city_train_back[t]['cost']),
+            'duration': float(self.cross_city_train_back[t]['duration']),
+            'origin_id': self.cross_city_train_back[t]['origin_id'],
+            'origin_station': self.cross_city_train_back[t]['origin_station'],
+            'destination_id': self.cross_city_train_back[t]['destination_id'],
+            'destination_station': self.cross_city_train_back[t]['destination_station']
+        },
+        within=pyo.Any
+    )
+    if self.cfg.multi_stage:
+        self.model.train_transfer = pyo.Set(initialize=self.cross_city_train_transfer.keys())
+        self.model.train_transfer_data = pyo.Param(
+            self.model.train_transfer,
+            initialize=lambda m, t: {
+                'train_number': self.cross_city_train_back[t]['train_number'],
+                'cost': float(self.cross_city_train_back[t]['cost']),
+                'duration': float(self.cross_city_train_back[t]['duration']),
+                'origin_id': self.cross_city_train_back[t]['origin_id'],
+                'origin_station': self.cross_city_train_back[t]['origin_station'],
+                'destination_id': self.cross_city_train_back[t]['destination_id'],
+                'destination_station': self.cross_city_train_back[t]['destination_station']
+            },
+            within=pyo.Any
+    )
+    ## variables
+    self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
+    self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
+    self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
+    self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
+    self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
+    self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+    if self.cfg.multi_stage:
+        self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+    ## last day hotel constraint
+    if self.ir.travel_days > 1:
+        def last_day_hotel_constraint(model,h):
+            N = self.ir.travel_days
+            return model.select_hotel[N-1,h] == model.select_hotel[N,h]
+        
+        self.model.last_day_hotel = pyo.Constraint(
+            self.model.accommodations,
+            rule=last_day_hotel_constraint
+        )
 
-      ## variables
-      self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
-      self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
-      self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
-      self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
-      self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
-      self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
+    self.model.attr_hotel = pyo.Var(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        domain=pyo.Binary,
+        initialize=0,
+        bounds=(0, 1)
+    )
 
-      ## last day hotel constraint
-      if self.ir.travel_days > 1:
-          def last_day_hotel_constraint(model,h):
-              N = self.ir.travel_days
-              return model.select_hotel[N-1,h] == model.select_hotel[N,h]
-          
-          self.model.last_day_hotel = pyo.Constraint(
-              self.model.accommodations,
-              rule=last_day_hotel_constraint
-          )
+    def link_attr_hotel_rule1(model, d, a, h):
+        return model.attr_hotel[d, a, h] <= model.select_attr[d, a]
 
-      self.model.poi_poi = pyo.Var(
-          self.model.days, self.model.pois, self.model.pois,
-          domain=pyo.Binary,
-          initialize=0,
-          bounds=(0, 1)
-      )
+    def link_attr_hotel_rule2(model, d, a, h):
+        return model.attr_hotel[d, a, h] <= model.select_hotel[d,h]
 
-      ## 一致性约束
-      def self_loop_constraint(model,d, p):
-          return model.poi_poi[d, p, p] == 0
-      
+    def link_attr_hotel_rule3(model, d, a, h):
+        return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
-      self.model.self_loop = pyo.Constraint(
-          self.model.days,self.model.pois,
-          rule=self_loop_constraint
-      )
+    self.model.link_attr_hotel1 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule1
+    )
+    self.model.link_attr_hotel2 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule2
+    )
+    self.model.link_attr_hotel3 = pyo.Constraint(
+        self.model.days, self.model.attractions, self.model.accommodations,
+        rule=link_attr_hotel_rule3
+    )        
+    
+    self.model.unique_attr = pyo.Constraint(
+        self.model.attractions,
+        rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+    )
 
-      self.model.u = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals) ##描述景点的顺序
-      ## join
-      def a_degree_constraint_out(model,d,a):
-          return sum(model.poi_poi[d, a, p] for p in model.pois) == model.select_attr[d, a]
-      
-      def a_degree_constraint_in(model,d,a):
-          return sum(model.poi_poi[d, p, a] for p in model.pois) == model.select_attr[d, a]
-      
-      def h_degree_constraint_out(model,d,h):
-          return sum(model.poi_poi[d, h, p] for p in model.pois) == model.select_hotel[d, h]
-      
-      def h_degree_constraint_in(model,d,h):
-          return sum(model.poi_poi[d, p, h] for p in model.pois) == model.select_hotel[d, h]
-      
-      def mtz_rule(m,d,i,j):
-          M = len(self.model.attractions)
-          if i == j:
-              return pyo.Constraint.Skip
-          return m.u[d, i] - m.u[d, j] + M * m.poi_poi[d, i, j] <= M - 1
+    self.model.unique_rest = pyo.Constraint(
+        self.model.restaurants,
+        rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+    )
 
-      def u_rule(m,d,p):
-          M = len(self.model.attractions)
-          return m.select_attr[d,p] <= m.u[d,p] <= M * m.select_attr[d, p]
-      
-      self.model.a_degree_constraint_out = pyo.Constraint(
-          self.model.days, self.model.attractions,
-          rule=a_degree_constraint_out
-      )
-      self.model.a_degree_constraint_in = pyo.Constraint(
-          self.model.days, self.model.attractions, 
-          rule=a_degree_constraint_in
-      )
-      self.model.h_degree_constraint_out = pyo.Constraint(
-          self.model.days, self.model.accommodations, 
-          rule=h_degree_constraint_out
-      )
-      self.model.h_degree_constraint_in = pyo.Constraint(
-          self.model.days, self.model.accommodations, 
-          rule=h_degree_constraint_in
-      )
-      self.model.mtz = pyo.Constraint(
-          self.model.days, self.model.attractions, self.model.attractions,
-          rule=mtz_rule
-      )
-      self.model.u_rule = pyo.Constraint(
-          self.model.days, self.model.attractions,
-          rule=u_rule
-      )
-      
-      self.model.unique_attr = pyo.Constraint(
-          self.model.attractions,
-          rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
-      )
+    transfer_day = 1
+    if self.cfg.multi_stage:
+        transfer_day = self.ir.stages[0].travel_days
+    def same_hotel_rule(m, d, h):
+        if d == 1 or d == transfer_day + 1: #select_hotel 表示当天出去玩出发的酒店，用于计算交通
+            return pyo.Constraint.Skip
+        return m.select_hotel[d, h] == m.select_hotel[d-1, h]
+    
+    self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
-      self.model.unique_rest = pyo.Constraint(
-          self.model.restaurants,
-          rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
-      )
-      if not cfg.change_hotel:
-          def same_hotel_rule(m, d, h):
-              if d == 1:
-                  return pyo.Constraint.Skip
-              return m.select_hotel[d, h] == m.select_hotel[d-1, h]
-          self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
+    
+    ## 多阶段景点，酒店，餐饮约束
+    def stage_attr_rule(m, d, a):
+        return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
+    
+    def stage_hotel_rule(m, d, h):
+        return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
+    
+    def stage_rest_rule(m, d, r):
+        return m.select_rest[d, r] * (d - self.model.rest_data[r]['start_stage']) * (d - self.model.rest_data[r]['end_stage']) <= 0
+    
+    self.model.stage_attr = pyo.Constraint(self.model.days, self.model.attractions, rule=stage_attr_rule)
+    self.model.stage_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=stage_hotel_rule)
+    self.model.stage_rest = pyo.Constraint(self.model.days, self.model.restaurants, rule=stage_rest_rule)
 
-      if len(self.cross_city_train_departure) > 0:
-          self.model.one_departure = pyo.Constraint(
-              rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
-          )
-      if len(self.cross_city_train_back) > 0:
-          self.model.one_back = pyo.Constraint(
-              rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
-          )
-      ##约束1
-      if cfg.num_attractions_per_day:
-          self.ast_to_pyomo_constraints(self.model,cfg.num_attractions_per_day,{'index_names':['day']},"num_attr_per_day",[self.model.days])
-      else:
-          self.model.attr_num = pyo.Constraint(
-              self.model.days,
-              rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
-          )
 
-      if cfg.num_restaurants_per_day:
-          self.ast_to_pyomo_constraints(self.model,cfg.num_restaurants_per_day,{'index_names':['day']},"num_rest_per_day",[self.model.days])
-      else:
-          self.model.rest_num = pyo.Constraint(
-              self.model.days,
-              rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
-          )
-      
-      if cfg.num_hotels_per_day:
-          self.ast_to_pyomo_constraints(self.model,cfg.num_hotels_per_day,{'index_names':['day']},"num_hotels_per_day",[self.model.days])
-      else:
-          self.model.hotel_num = pyo.Constraint(
-              self.model.days,
-              rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
-          )
+    if len(self.cross_city_train_departure) > 0:
+        self.model.one_departure = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
+        )
+    if len(self.cross_city_train_back) > 0:
+        self.model.one_back = pyo.Constraint(
+            rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
+        )
+    if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
+        self.model.one_transfer = pyo.Constraint(
+            rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+        )
 
-      ##约束2
-      if cfg.infra_city_transportation == 'public_transportation':
-          self.model.trans_mode_rule = pyo.Constraint(
-              self.model.days,
-              rule=lambda m, d: m.trans_mode[d] == 1
-          )
-      elif cfg.infra_city_transportation == 'taxi':
-          self.model.trans_mode_rule = pyo.Constraint(
-              self.model.days,
-              rule=lambda m, d: m.trans_mode[d] == 0
-          )
     {objective function code占位符}
   ```
   除了以上的pyomo建模代码，还提供了用于市内交通的查询函数：
