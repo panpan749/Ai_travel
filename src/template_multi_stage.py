@@ -371,6 +371,7 @@ class dynamic_constraint:
     """
     num_travlers: int = None
     rooms_per_night: int = None
+    peoples_per_car: int = 4
     children_num: int = 0
     multi_stage: bool = False
     ## 时间相关
@@ -454,6 +455,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         num_travlers=data["num_travlers"],
         children_num=data["children_num"],
         rooms_per_night=data["rooms_per_night"],
+        peoples_per_car = data["peoples_per_car"],
         multi_stage=data["multi_stage"],
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
@@ -587,11 +589,11 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
     for idx,stg in enumerate(ir.stages):
         src_attrs = poi_data['attractions'][idx]
         dest_attrs = src_attrs
-        if stg.accommodation_constraints:
-            if isinstance(stg.accommodation_constraints,OpNode):
-                dest_attrs = [item for item in src_attrs if stg.accommodation_constraints.eval(create_context(item,'global',src_attrs))]
-            elif isinstance(stg.accommodation_constraints, AggregateNode) and (stg.accommodation_constraints.func == 'min' or stg.accommodation_constraints.func == 'max'):
-                dest_attrs = stg.accommodation_constraints.eval({'global':src_attrs})
+        if stg.attraction_constraints:
+            if isinstance(stg.attraction_constraints,OpNode):
+                dest_attrs = [item for item in src_attrs if stg.attraction_constraints.eval(create_context(item,'global',src_attrs))]
+            elif isinstance(stg.attraction_constraints, AggregateNode) and (stg.attraction_constraints.func == 'min' or stg.attraction_constraints.func == 'max'):
+                dest_attrs = stg.attraction_constraints.eval({'global':src_attrs})
         attraction_list.extend(dest_attrs)
         src_rests = poi_data['restaurants'][idx]
         dest_rests = src_rests
@@ -603,11 +605,11 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
         restaurant_list.extend(dest_rests)
         src_accos = poi_data['accommodations'][idx]
         dest_accos = src_accos
-        if stg.attraction_constraints:
-            if isinstance(stg.attraction_constraints,OpNode):
-                dest_accos = [item for item in src_accos if stg.attraction_constraints.eval(create_context(item,'global',src_accos))]
-            elif isinstance(stg.attraction_constraints, AggregateNode) and (stg.attraction_constraints.func == 'min' or stg.attraction_constraints.func == 'max'):
-                dest_accos = stg.attraction_constraints.eval({'global':src_accos})
+        if stg.accommodation_constraints:
+            if isinstance(stg.accommodation_constraints,OpNode):
+                dest_accos = [item for item in src_accos if stg.accommodation_constraints.eval(create_context(item,'global',src_accos))]
+            elif isinstance(stg.accommodation_constraints, AggregateNode) and (stg.accommodation_constraints.func == 'min' or stg.accommodation_constraints.func == 'max'):
+                dest_accos = stg.accommodation_constraints.eval({'global':src_accos})
         accommodation_list.extend(dest_accos)
 
     attraction_dict = {a['id']: a for a in attraction_list}
@@ -686,7 +688,7 @@ class template:
                         )
                 )
                 for a in self.model.attractions
-                for h in self.model.hotels
+                for h in self.model.accommodations
             )
         else:
             trans_time = 0
@@ -756,7 +758,7 @@ class template:
                         )
                 )
                 for a in self.model.attractions
-                for h in self.model.hotels
+                for h in self.model.accommodations
             ) if self.ir.total_travel_days > 1 else 0
     
     def get_daily_total_cost(self,day):
@@ -783,7 +785,7 @@ class template:
 
         transport_cost = sum(
             self.model.attr_hotel[day, a, h] * (
-                    (1 - self.model.trans_mode[day]) * ((real_peoples + 3) // 4  ) * (
+                    (1 - self.model.trans_mode[day]) * ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car  ) * (
                     get_trans_params(self.intra_city_trans, a, h, 'taxi_cost') 
                     )
                 )   + \
@@ -792,7 +794,7 @@ class template:
                         get_trans_params(self.intra_city_trans, a, h, 'bus_cost') 
                         )
                 )  + self.model.attr_hotel[day, a, h] * (
-                    (1 - self.model.trans_mode[day]) * ((real_peoples + 3) // 4  ) * (
+                    (1 - self.model.trans_mode[day]) * ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car  ) * (
                     get_trans_params(self.intra_city_trans, h, a, 'taxi_cost') 
                     )
                 )   + \
@@ -802,8 +804,8 @@ class template:
                         )
                     ) 
             for a in self.model.attractions
-            for h in self.model.hotels
-        ) if self.ir.travel_days > 1 else 0
+            for h in self.model.accommodations
+        ) if self.ir.total_travel_days > 1 else 0
 
         restaurant_cost = sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['cost']
@@ -853,12 +855,12 @@ class template:
                 )
             return hotel_cost
     def get_daily_total_transportation_cost(self,day):
-        if self.ir.travel_days <= 1:
+        if self.ir.total_travel_days <= 1:
             return 0
         real_peoples = self.ir.peoples - self.ir.children_num
         transport_cost = sum(
             self.model.attr_hotel[day, a, h] * (
-                    (1 - self.model.trans_mode[day]) * ((real_peoples + 3) // 4  ) * (
+                    (1 - self.model.trans_mode[day]) * ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car  ) * (
                     get_trans_params(self.intra_city_trans, a, h, 'taxi_cost') 
                     )
                 )   + \
@@ -867,7 +869,7 @@ class template:
                         get_trans_params(self.intra_city_trans, a, h, 'bus_cost') 
                         )
                 )  + self.model.attr_hotel[day, a, h] * (
-                    (1 - self.model.trans_mode[day]) * ((real_peoples + 3) // 4  ) * (
+                    (1 - self.model.trans_mode[day]) * ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car  ) * (
                     get_trans_params(self.intra_city_trans, h, a, 'taxi_cost') 
                     )
                 )   + \
@@ -877,8 +879,8 @@ class template:
                         )
                     ) 
             for a in self.model.attractions
-            for h in self.model.hotels
-        ) if self.ir.travel_days > 1 else 0
+            for h in self.model.accommodations
+        ) if self.ir.total_travel_days > 1 else 0
         
         train_cost = 0
         if day == 1:
@@ -1168,8 +1170,8 @@ class template:
             day_to_city = {}
             curr_day = 1
             for stg in self.ir.stages:
-                city_to_day_range[stg.destinate_city] = [curr_day, curr_day + stg.travel_days]
-                for day in range(curr_day,curr_day + stg.travel_days + 1):
+                city_to_day_range[stg.destinate_city] = [curr_day, curr_day + stg.travel_days - 1]
+                for day in range(curr_day,curr_day + stg.travel_days):
                     day_to_city[day] = stg.destinate_city
                 curr_day += stg.travel_days
             self.city_to_day_range = city_to_day_range
@@ -1184,7 +1186,7 @@ class template:
         hotel_dict = self.poi_data['accommodations']
         restaurant_dict = self.poi_data['restaurants']
         
-        days = range(1,self.ir.travel_days + 1)
+        days = range(1,self.ir.total_travel_days + 1)
         self.model.days = pyo.Set(initialize=days)
         self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
         self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
@@ -1216,8 +1218,8 @@ class template:
                 'type': hotel_dict[h]['type'],
                 'rating': float(hotel_dict[h]['rating']),
                 'feature': hotel_dict[h]['feature'],
-                'start_stage': int(attraction_dict[h]['start_stage']),
-                'end_stage': int(attraction_dict[h]['end_stage'])
+                'start_stage': int(hotel_dict[h]['start_stage']),
+                'end_stage': int(hotel_dict[h]['end_stage'])
             },
             within=pyo.Any
         )
@@ -1233,8 +1235,8 @@ class template:
                 'recommended_food': restaurant_dict[r]['recommended_food'],
                 'queue_time': float(restaurant_dict[r]['queue_time']),
                 'duration': float(restaurant_dict[r]['duration']),
-                'start_stage': int(attraction_dict[r]['start_stage']),
-                'end_stage': int(attraction_dict[r]['end_stage'])
+                'start_stage': int(restaurant_dict[r]['start_stage']),
+                'end_stage': int(restaurant_dict[r]['end_stage'])
             },
             within=pyo.Any
         )
@@ -1290,9 +1292,9 @@ class template:
         if self.cfg.multi_stage:
             self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
         ## last day hotel constraint
-        if self.ir.travel_days > 1:
+        if self.ir.total_travel_days > 1:
             def last_day_hotel_constraint(model,h):
-                N = self.ir.travel_days
+                N = self.ir.total_travel_days
                 return model.select_hotel[N-1,h] == model.select_hotel[N,h]
             
             self.model.last_day_hotel = pyo.Constraint(
@@ -1355,6 +1357,9 @@ class template:
             return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
         
         def stage_hotel_rule(m, d, h):
+            transfer_day = self.ir.stages[0].travel_days
+            if self.cfg.multi_stage and d == transfer_day:
+                return m.select_hotel[d, h] * ((d + 1) - self.model.hotel_data[h]['start_stage']) * ((d + 1) - self.model.hotel_data[h]['end_stage']) <= 0 ##换乘酒店跨市
             return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
         
         def stage_rest_rule(m, d, r):
@@ -1620,7 +1625,6 @@ class template:
             if r:
                 daily_cost += real_peoples * r['cost']
         if travel_days > 1 :
-            order = sorted(selected_attr, key=lambda a: model.u[day,a['id']].value)
             if pyo.value(model.trans_mode[day]) > 0.9:
                 transport_cost = real_peoples * get_trans_params(
                     intra_city_trans,
@@ -1634,12 +1638,12 @@ class template:
                     'bus_cost'
                 )
             else:
-                transport_cost = ((real_peoples + 3) // 4) * get_trans_params(
+                transport_cost = ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car) * get_trans_params(
                     intra_city_trans,
                     selected_hotel['id'],
                     selected_attr['id'],
                     'taxi_cost'
-                ) + ((real_peoples + 3) // 4) * get_trans_params(
+                ) + ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car) * get_trans_params(
                     intra_city_trans,
                     selected_attr['id'],
                     selected_hotel['id'],
@@ -1796,7 +1800,7 @@ if __name__ == '__main__':
                 item['duration'] = float(item['duration'])
                 item['queue_time'] = float(item['queue_time'])
         # fetch 数据
-        cross_city_train_departure, cross_city_train_transfer,cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
+        cross_city_train_departure, cross_city_train_transfer,cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
         # 粗排: todo
         tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
         tp.make(dc)

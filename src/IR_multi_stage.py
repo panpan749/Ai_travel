@@ -368,6 +368,7 @@ class dynamic_constraint:
     rooms_per_night: int = None
     children_num: int = 0
     multi_stage: bool = False
+    peoples_per_car: int = 4
     ## 时间相关
     daily_total_time: Optional[Expr] = field(default_factory= lambda: OpNode('<=',FieldNode('daily_total_time'),ValueNode(840)))
     daily_queue_time: Optional[Expr] = None

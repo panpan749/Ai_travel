@@ -6,6 +6,7 @@ from dataclasses import asdict
 import json,re
 from base import Config
 import os
+from tqdm import tqdm
 
 prompt_sys = PromptSystem.getSingleton() 
 static_prompt = prompt_sys.getPrompt('static')
@@ -70,6 +71,7 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         children_num=int(data["children_num"]),
         rooms_per_night=int(data["rooms_per_night"]),
         multi_stage=data["multi_stage"],
+        peoples_per_car = data["peoples_per_car"],
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
@@ -110,7 +112,7 @@ def dynamic_constraint_to_dict(dc: "dynamic_constraint") -> Dict[str, Any]:
     # 明确列出 dynamic_constraint 的所有字段（需与类定义完全一致）
     fields = [
         # 基础字段
-        "num_travlers", "rooms_per_night","children_num","multi_stage"
+        "num_travlers", "rooms_per_night","children_num","multi_stage", "peoples_per_car",
         # 时间相关
         "daily_total_time", "daily_queue_time", "daily_total_meal_time", "daily_transportation_time",
         "total_active_time", "total_queue_time", "total_restaurant_time", "total_transportation_time",
@@ -446,15 +448,29 @@ def create_code(ir_json,dynamic_json,objective_code,user_problem = ""):
     main_code = f"ir_data = \"\"\"{ir_json}\"\"\"\ndc_data = \"\"\"{dynamic}\"\"\" \nir = ir_from_json(ir_data)\ndc = dynamic_constraint_from_json(dc_data)\nuser_question = \"\"\"{user_problem}\"\"\""
     return main_code,code
 
-
+async def worker(queue: asyncio.Queue, worker_id: int, tbar: tqdm):
+    """工作协程：从队列获取任务并执行"""
+    code_path = Config.get_global_config().config['code_path']
+    template_file = Config.get_global_config().config['template_file']
+    while True:
+        # 从队列获取任务（如果队列为空则等待）
+        problem = await queue.get()
+        try:
+            static,dynamic,objective = await get_llm_result_parallel(problem,write_log=True)
+            main_code,extra_code = create_code(static,dynamic,objective,user_problem=problems[problem])
+            code_file = f"{code_path}/id_{problem}.py"
+            create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
+        finally:
+            tbar.update(1)
+            # 通知队列当前任务已完成（必须调用，否则队列会认为任务未处理）
+            queue.task_done()
 async def main():
     import time
     from tqdm import tqdm
     print('=======start=======')
     begin = time.time()
     problem_file = Config.get_global_config().config['problem_file']
-    code_path = Config.get_global_config().config['code_path']
-    template_file = Config.get_global_config().config['template_file']
+    MAX_CONCURRENCY = Config.get_global_config().config['max_concurrency']
 
     break_point = 29
     end_num = 120
@@ -463,7 +479,14 @@ async def main():
         for item in json_problems:
             problems[item['question_id']] = item['question']
     print(f'初始化完成，成功导入数据集: {len(problems)}条')
-    for problem in tqdm(problems):
+    queue = asyncio.Queue(maxsize=MAX_CONCURRENCY)
+    tbar = tqdm(total=len(problems), desc='进度')
+    workers = []
+    for i in range(MAX_CONCURRENCY):
+        worker_task = asyncio.create_task(worker(queue, i + 1, tbar))
+        workers.append(worker_task)
+
+    for problem in problems:
         sample = {
             "question_id": problem,
             "question": problems[problem],
@@ -474,13 +497,19 @@ async def main():
             time.sleep(0.1)
             continue
             
-        static,dynamic,objective = await get_llm_result_parallel(problem,write_log=True)
-        main_code,extra_code = create_code(static,dynamic,objective,user_problem=problems[problem])
-        code_file = f"{code_path}/id_{problem}.py"
-        create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
+        await queue.put(problem)
+
         if int(problem) == end_num:
             break
-    
+
+    await queue.join()
+
+    for worker_task in workers:
+            worker_task.cancel()
+
+    await asyncio.gather(*workers, return_exceptions=True)
+    tbar.close()
+
     dump_file = Config.get_global_config().config['question_prompt']
 
     with open(dump_file, 'w', encoding='utf-8') as f:
@@ -550,13 +579,13 @@ async def test():
         json_problems = json.load(f)
         for item in json_problems:
             problems[item['question_id']] = item['question'] 
-    problems['10086'] = "我计划于2025年10月15日至19日从洛阳前往北京开展为期五天的高品质双人旅行，总预算为20000元，需满足以下需求：全程入住四星级及以上标准酒店，行程中须包含颐和园、恭王府博物馆等风景名胜，并安排一次正宗老北京烤鸭体验。15日早上从洛阳龙门站出发，19日晚返回洛阳。返程指定搭乘G651次列车。每日行程需兼顾热门景点与合理动线，避免过度奔波，市内交通以打车为主，整体行程注重舒适性与文化深度，尽量延长游玩时间、减少通勤和排队时间。"
+    problems['10086'] = "我计划于2025年07月08日至2025年07月09日从北京市前往广州市，开启为期2天的高性价比4人之旅，全程总预算控制在14000元以内。旅行需求包括：全程入住经济型连锁酒店，行程需覆盖邓世昌纪念馆、纯阳观等核心景点；2025年07月08日早上出发、2025年07月09日晚返回。出发交通指定搭乘D903次高铁，市内交通以公交为主，尽可能精简非必要开支。在控制预算的前提下，将优先保障景点品质、餐饮体验和住宿舒适度，并确保每人独立入住房间。"
     test_id = '10086'
     static,dynamic,objective = await get_llm_result_parallel(test_id,write_log=True)
     
     insert_code, extra_code = create_code(static,dynamic,objective,user_problem=problems[test_id])
     create_code_file(
-        template_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\src\\template.py',
+        template_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\src\\template_multi_stage.py',
         code_file_path='D:\\资料\\AI攻略生成比赛\\基于多智能体协同的高价值信息生成-数据集相关文件\\基于多智能体协同的高价值信息生成-数据集相关文件\\Ai_travel\\prompts\\code\\id_6.py',
         insert_code=insert_code,
         extra_code=extra_code
@@ -571,6 +600,6 @@ async def test():
 
 if __name__ == '__main__':
     # asyncio.run(test_static())
-    asyncio.run(test_dynamic())
+    asyncio.run(test())
     # asyncio.run(test_objective())
     # asyncio.run(test())

@@ -363,7 +363,7 @@ class IR:
     destinate_city: str  # 目的地城市（拼写错误，应为destination_city）
     budgets: int = 0  # 总预算 默认不设总预算
 
-    # 各类别的约束条件，使用表达式树表示
+    # 
     attraction_constraints: Optional[Expr] = None  # 景点约束
     accommodation_constraints: Optional[Expr] = None  # 住宿约束
     restaurant_constraints: Optional[Expr] = None  # 餐厅约束
