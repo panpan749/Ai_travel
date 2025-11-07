@@ -460,6 +460,8 @@ async def worker(queue: asyncio.Queue, worker_id: int, tbar: tqdm):
             main_code,extra_code = create_code(static,dynamic,objective,user_problem=problems[problem])
             code_file = f"{code_path}/id_{problem}.py"
             create_code_file(template_file_path=template_file,code_file_path=code_file,insert_code=main_code,extra_code=extra_code)
+        except Exception as e:
+            print(f"任务{problem}执行出错:{e}")
         finally:
             tbar.update(1)
             # 通知队列当前任务已完成（必须调用，否则队列会认为任务未处理）
@@ -600,6 +602,6 @@ async def test():
 
 if __name__ == '__main__':
     # asyncio.run(test_static())
-    asyncio.run(test())
+    asyncio.run(main())
     # asyncio.run(test_objective())
     # asyncio.run(test())
