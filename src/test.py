@@ -8,6 +8,40 @@ from dataclasses import dataclass,field,asdict
 from typing import Any, Callable, Dict, Optional,List
 import json
 
+_ConstraintClass = pyo.Constraint
+
+def _coerce_bool_to_constraint(val):
+    # 你也可以改成：False -> _ConstraintClass.Feasible（软放过）
+    if val is True:
+        return _ConstraintClass.Feasible
+    if val is False:
+        return _ConstraintClass.Infeasible
+    return val
+
+
+def Constraint(*args, **kwargs):
+    # 包 rule
+    if 'rule' in kwargs and kwargs['rule'] is not None:
+        _rule = kwargs['rule']
+        def _wrapped_rule(m, *idx):
+            try:
+                out = _rule(m)
+            except TypeError:
+                out = _rule(m, *idx)
+            return _coerce_bool_to_constraint(out)
+        kwargs['rule'] = _wrapped_rule
+    # 包 expr（直接给了 True/False 的情况）
+    if 'expr' in kwargs and isinstance(kwargs['expr'], bool):
+        kwargs['expr'] = _coerce_bool_to_constraint(kwargs['expr'])
+    return _ConstraintClass(*args, **kwargs)
+
+# 把常用哨兵也挂到函数上，保持外部兼容：pyo.Constraint.Skip 等
+Constraint.Skip = _ConstraintClass.Skip
+Constraint.Feasible = _ConstraintClass.Feasible
+Constraint.Infeasible = _ConstraintClass.Infeasible
+
+# 全局替换
+pyo.Constraint = Constraint
 
 class Expr:
     """表达式抽象基类，用于构建旅行规划约束的抽象语法树(AST)。
@@ -501,8 +535,8 @@ def fetch_data(ir: IR):
     day_to_city = {}
     curr_day = 1
     for stg in ir.stages:
-        city_to_day_range[stg.destinate_city] = [curr_day, curr_day + stg.travel_days]
-        for day in range(curr_day,curr_day + stg.travel_days + 1):
+        city_to_day_range[stg.destinate_city] = [curr_day, curr_day + stg.travel_days - 1]
+        for day in range(curr_day,curr_day + stg.travel_days):
             day_to_city[day] = stg.destinate_city
         curr_day += stg.travel_days
 
@@ -684,6 +718,13 @@ class template:
                         get_trans_params(self.intra_city_trans, a, h, 'taxi_duration')
                 ) + \
                         self.model.trans_mode[day] * (
+                                get_trans_params(self.intra_city_trans, a, h, 'bus_duration')
+                        )
+                ) + self.model.attr_hotel[day, a, h] * (
+                        (1 - self.model.trans_mode[day]) * (
+                        get_trans_params(self.intra_city_trans, h, a, 'taxi_duration')
+                ) + \
+                        self.model.trans_mode[day] * (
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
                         )
                 )
@@ -751,6 +792,13 @@ class template:
                     self.model.attr_hotel[day, a, h] * (
                         (1 - self.model.trans_mode[day]) * (
                         get_trans_params(self.intra_city_trans, a, h, 'taxi_duration')
+                ) + \
+                        self.model.trans_mode[day] * (
+                                get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
+                        )
+                ) + self.model.attr_hotel[day, a, h] * (
+                        (1 - self.model.trans_mode[day]) * (
+                        get_trans_params(self.intra_city_trans, h, a, 'taxi_duration')
                 ) + \
                         self.model.trans_mode[day] * (
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
@@ -1365,9 +1413,9 @@ class template:
             return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
         
         def stage_hotel_rule(m, d, h):
-            transfer_day = self.ir.stages[0].travel_days + 1
+            transfer_day = self.ir.stages[0].travel_days
             if self.cfg.multi_stage and d == transfer_day:
-                return m.select_hotel[d, h] * ((d + 1) - self.model.hotel_data[h]['start_stage']) * ((d + 1) - self.model.hotel_data[h]['end_stage']) <= 0 ##换乘酒店跨市
+                return pyo.Constraint.Skip ##换乘酒店跨市
             return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
         
         def stage_rest_rule(m, d, r):
@@ -1489,43 +1537,32 @@ class template:
         try:
         #############extra code##############
 
-            self.model.must_have_attr_chengdu_1 = pyo.Constraint(
-                rule=lambda m: sum(
-                    self.model.select_attr[d, a]
-                    for d in range(city_to_day_range["成都市"][0],city_to_day_range["成都市"][1] + 1)
-                    for a in self.model.attractions
-                    if ('百花潭公园' in self.model.attr_data[a]['name'])
-                ) >= 1
-            )
-            self.model.must_have_attr_luoyang_1 = pyo.Constraint(
-                rule=lambda m: sum(
-                    self.model.select_attr[d, a]
-                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
-                    for a in self.model.attractions
-                    if ('白马寺' in self.model.attr_data[a]['name'])
-                ) >= 1
-            )
-            self.model.must_have_rest_luoyang_1 = pyo.Constraint(
-                rule=lambda m: sum(
-                    self.model.select_rest[d, r]
-                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
-                    for r in self.model.restaurants
-                    if ('鲁记卤肉凉菜' in self.model.rest_data[r]['name'])
-                ) >= 1
-            )
-            self.model.must_have_rest_luoyang_2 = pyo.Constraint(
-                rule=lambda m: sum(
-                    self.model.select_rest[d, r]
-                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
-                    for r in self.model.restaurants
-                    if ('鲜羊肉汤店' in self.model.rest_data[r]['name'])
-                ) >= 1
-            )
-            # 最小化总花费目标函数
-            # 用户明确要求总花费控制在最低水平
+            def forbid_hotel_rule(m):
+                return sum(
+                    m.select_hotel[d, h]
+                    for h in m.accommodations
+                    for d in m.days
+                    if ('四星' in m.hotel_data[h]['type'] or '五星' in m.hotel_data[h]['type'])
+                ) <= 0  # 这里返回的是 Pyomo 表达式对象
+
+            self.model.forbid_hotel = pyo.Constraint(rule=forbid_hotel_rule)
+            # 最小化总通勤时间目标函数
+            # 包括市内交通时间和跨城高铁时间
             def objective_rule(model):
-                total_cost = sum(self.get_daily_total_cost(day) for day in days)
-                return total_cost
+                # 市内交通时间总和
+                total_intra_city_transport_time = sum(self.get_daily_total_transportation_time(d) for d in model.days)
+
+                # 跨城交通时间（去程）
+                departure_train_time = sum(model.select_train_departure[t] * model.train_departure_data[t]['duration'] 
+                                          for t in model.train_departure)
+
+                # 跨城交通时间（返程）
+                back_train_time = sum(model.select_train_back[t] * model.train_back_data[t]['duration'] 
+                                     for t in model.train_back)
+
+                total_transport_time = total_intra_city_transport_time + departure_train_time + back_train_time
+
+                return total_transport_time
 
             self.model.obj = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
@@ -1619,7 +1656,7 @@ class template:
         return selected_hotel[0] if selected_hotel else 'null'
 
 
-    def get_time(self, selected_attr, selected_rest, selected_hotel, day):
+    def get_time(self, selected_attr, selected_rest, selected_hotel, day, transfer_departure_hotel = None):
         intra_city_trans = self.intra_city_trans
         model = self.model
         daily_time = 0
@@ -1627,38 +1664,42 @@ class template:
         daily_time += selected_attr['duration']
         for r in selected_rest:
             daily_time += r['queue_time'] + r['duration']
+        if transfer_departure_hotel:
+            transfer_hotel = transfer_departure_hotel
+        else:
+            transfer_hotel = selected_hotel
 
         if self.ir.total_travel_days > 1 :
             ## 提取出景点顺序
             if pyo.value(model.trans_mode[day]) > 0.9:
                 transport_time = get_trans_params(
                     intra_city_trans,
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     selected_attr['id'],
                     'bus_duration'
                 ) + get_trans_params(
                     intra_city_trans,
                     selected_attr['id'],
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     'bus_duration'
                 )
             else:
                 transport_time = get_trans_params(
                     intra_city_trans,
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     selected_attr['id'],
                     'taxi_duration'
                 ) + get_trans_params(
                     intra_city_trans,
                     selected_attr['id'],
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     'taxi_duration'
                 )
 
         return daily_time + transport_time, transport_time
 
 
-    def get_cost(self, selected_attr, selected_rest, departure_trains,transfer_trains, back_trains, selected_hotel, day):
+    def get_cost(self, selected_attr, selected_rest, departure_trains,transfer_trains, back_trains, selected_hotel, day, transfer_departure_hotel = None):
 
         model = self.model
         intra_city_trans = self.intra_city_trans
@@ -1667,6 +1708,10 @@ class template:
         real_peoples = self.ir.peoples - self.ir.children_num
         daily_cost += real_peoples * selected_attr['cost']
         travel_days = self.ir.total_travel_days
+        if transfer_departure_hotel:
+            transfer_hotel = transfer_departure_hotel
+        else:
+            transfer_hotel = selected_hotel
         for r in selected_rest:
             if r:
                 daily_cost += real_peoples * r['cost']
@@ -1674,25 +1719,25 @@ class template:
             if pyo.value(model.trans_mode[day]) > 0.9:
                 transport_cost = real_peoples * get_trans_params(
                     intra_city_trans,
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     selected_attr['id'],
                     'bus_cost'
                 ) + real_peoples * get_trans_params(
                     intra_city_trans,
                     selected_attr['id'],
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     'bus_cost'
                 )
             else:
                 transport_cost = ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car) * get_trans_params(
                     intra_city_trans,
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     selected_attr['id'],
                     'taxi_cost'
                 ) + ((real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car) * get_trans_params(
                     intra_city_trans,
                     selected_attr['id'],
-                    selected_hotel['id'],
+                    transfer_hotel['id'],
                     'taxi_cost'
                 )
 
@@ -1724,6 +1769,7 @@ class template:
         select_at = []
         select_re = []
         travel_days = self.ir.total_travel_days
+        transfer_day = self.ir.stages[0].travel_days
         date = self.generate_date_range(self.ir.start_date) ##todo
         for day in range(1, travel_days + 1):
             attr_details = self.get_selected_poi('attraction', day, select_at)[0]
@@ -1740,9 +1786,13 @@ class template:
                 'lunch': rest_details[1],
                 'dinner': rest_details[2]
             }
-            selected_hotel = self.get_selected_hotel(day)
-            daily_time, transport_time = self.get_time(attr_details, rest_details, selected_hotel, day)
-            daily_cost, transport_cost = self.get_cost(attr_details, rest_details, departure_trains,transfer_trains,back_trains, selected_hotel, day)
+            selected_hotel = self.get_selected_hotel(day)        
+            if self.cfg.multi_stage and day == transfer_day and day > 1:
+                daily_time, transport_time = self.get_time(attr_details, rest_details, selected_hotel, day, transfer_departure_hotel=self.get_selected_hotel(day - 1))
+                daily_cost, transport_cost = self.get_cost(attr_details, rest_details, departure_trains,transfer_trains,back_trains, selected_hotel, day, transfer_departure_hotel=self.get_selected_hotel(day - 1))
+            else:
+                daily_time, transport_time = self.get_time(attr_details, rest_details, selected_hotel, day)
+                daily_cost, transport_cost = self.get_cost(attr_details, rest_details, departure_trains,transfer_trains,back_trains, selected_hotel, day)
             day_plan = {
                 "date": f"{date[day - 1]}",
                 "cost": round(daily_cost, 2),
@@ -1795,7 +1845,7 @@ def get_solution(omo:template):
     solver = omo.configure_solver()
     results = solver.solve(omo.model, tee=True)
     plan = omo.generate_daily_plan()
-    print(f"```generated_plan\n{plan}\n```")
+    print(f"```generated_plan\n{json.dumps(plan,indent=4,ensure_ascii=False)}\n```")
 
 
 
@@ -1811,82 +1861,65 @@ if __name__ == '__main__':
     ###########################IR && dynamic_constraint#############################
 
     ir_data = """{
-      "start_date": "2025年07月13日",
+      "start_date": "2025年08月20日",
       "peoples": 1,
       "children_num": 0,
-      "total_travel_days": 8,
+      "total_travel_days": 3,
       "budgets": 0,
+      "departure_transport_constraints": null,
+      "back_transport_constraints": null,
+      "intermediate_transport_constraints": null,
       "stages": [
         {
-          "original_city": "武汉市",
-          "destinate_city": "成都市",
+          "original_city": "杭州市",
+          "destinate_city": "广州市",
           "travel_days": 3,
-          "attraction_constraints": null,
-          "accommodation_constraints": null,
-          "restaurant_constraints": null
-        },
-        {
-          "original_city": "成都市",
-          "destinate_city": "洛阳市",
-          "travel_days": 5,
           "attraction_constraints": null,
           "accommodation_constraints": {
             "type": "op",
-            "op": "==",
+            "op": "and",
             "left": {
-              "type": "field",
-              "field": "name"
+              "type": "unary",
+              "op": "not",
+              "operand": {
+                "type": "op",
+                "op": "include",
+                "left": {
+                  "type": "field",
+                  "field": "type"
+                },
+                "right": {
+                  "type": "value",
+                  "value": "四星"
+                }
+              }
             },
             "right": {
-              "type": "value",
-              "value": "洛阳非凡·云联酒店"
+              "type": "unary",
+              "op": "not",
+              "operand": {
+                "type": "op",
+                "op": "include",
+                "left": {
+                  "type": "field",
+                  "field": "type"
+                },
+                "right": {
+                  "type": "value",
+                  "value": "五星"
+                }
+              }
             }
           },
           "restaurant_constraints": null
         }
-      ],
-      "departure_transport_constraints": {
-        "type": "op",
-        "op": "==",
-        "left": {
-          "type": "field",
-          "field": "origin_station"
-        },
-        "right": {
-          "type": "value",
-          "value": "武汉站"
-        }
-      },
-      "back_transport_constraints": {
-        "type": "op",
-        "op": "==",
-        "left": {
-          "type": "field",
-          "field": "train_number"
-        },
-        "right": {
-          "type": "value",
-          "value": "Z136"
-        }
-      },
-      "intermediate_transport_constraints": {
-        "type": "op",
-        "op": "==",
-        "left": {
-          "type": "field",
-          "field": "origin_station"
-        },
-        "right": {
-          "type": "value",
-          "value": "成都东站"
-        }
-      }
+      ]
     }"""
     dc_data = """{
       "num_travlers": 1,
       "rooms_per_night": 1,
       "children_num": 0,
-      "multi_stage": true,
+      "multi_stage": false,
       "peoples_per_car": 4,
       "daily_total_time": {
         "type": "op",
@@ -1908,8 +1941,7 @@ if __name__ == '__main__':
       "total_restaurant_time": null,
       "total_transportation_time": null,
       "infra_city_transportation": {
-        "成都市": "none",
-        "洛阳市": "none"
+        "广州市": "none"
       },
       "total_budget": null,
       "total_meal_budget": null,
@@ -1924,14 +1956,16 @@ if __name__ == '__main__':
     }""" 
     ir = ir_from_json(ir_data)
     dc = dynamic_constraint_from_json(dc_data)
-    user_question = """我计划于2025年07月13日至2025年07月20日从武汉市出发，先前往成都市旅游3天，之后前往洛阳市游玩5天，总花费控制在最低水平，在成都时必须包含百花潭公园。2025年07月13日上午从武汉站乘坐高铁出发，2025年07月15日晚上从成都东站离开，并于当晚抵达洛阳市住宿。在洛阳期间，我会游览白马寺，用餐选择鲁记卤肉凉菜和鲜羊肉汤店，住宿安排在洛阳非凡·云联酒店，并乘坐Z136次列车从洛阳站返回武昌站。市内交通可使用公共交通或打车。"""
+    user_question = """我准备在2025年08月20日至2025年08月22日从杭州市前往广州市旅游，2025年08月20日上午从杭州市出发，2025年08月22日晚上返回杭州市，预算不做限制，但尽量缩短通勤时间且禁止入住四星级及以上的酒店，根据上面的需求帮我规划一份方案。"""
 
     ##########################################################
 
     try:
+        # cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
         from mock import get_mock_data,generate_stage
         generate_stage([item.travel_days for item in ir.stages])
         cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data()
+        
         for item in cross_city_train_departure:
             item['cost'] = float(item['cost'])
             item['duration'] = float(item['duration'])
@@ -1971,6 +2005,7 @@ if __name__ == '__main__':
         get_solution(tp)
         # get_solution
     except Exception as e:
+        print(e)
         def generate_date_range(start_date, date_format="%Y年%m月%d日"):
             start = datetime.strptime(start_date, date_format)
             days = ir.total_travel_days
