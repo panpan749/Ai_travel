@@ -687,8 +687,7 @@ class template:
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
                         )
                 )
-                for a in self.model.attractions
-                for h in self.model.accommodations
+                for (a, h) in self.model.AH_by_day[day]
             )
         else:
             trans_time = 0
@@ -757,8 +756,7 @@ class template:
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
                         )
                 )
-                for a in self.model.attractions
-                for h in self.model.accommodations
+                for (a, h) in self.model.AH_by_day[day]
             ) if self.ir.total_travel_days > 1 else 0
     
     def get_daily_total_cost(self,day):
@@ -803,8 +801,7 @@ class template:
                         get_trans_params(self.intra_city_trans, h, a, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
+            for (a, h) in self.model.AH_by_day[day]
         ) if self.ir.total_travel_days > 1 else 0
 
         restaurant_cost = sum(
@@ -878,8 +875,7 @@ class template:
                         get_trans_params(self.intra_city_trans, h, a, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
+            for (a, h) in self.model.AH_by_day[day]
         ) if self.ir.total_travel_days > 1 else 0
         
         train_cost = 0
@@ -1272,13 +1268,13 @@ class template:
             self.model.train_transfer_data = pyo.Param(
                 self.model.train_transfer,
                 initialize=lambda m, t: {
-                    'train_number': self.cross_city_train_back[t]['train_number'],
-                    'cost': float(self.cross_city_train_back[t]['cost']),
-                    'duration': float(self.cross_city_train_back[t]['duration']),
-                    'origin_id': self.cross_city_train_back[t]['origin_id'],
-                    'origin_station': self.cross_city_train_back[t]['origin_station'],
-                    'destination_id': self.cross_city_train_back[t]['destination_id'],
-                    'destination_station': self.cross_city_train_back[t]['destination_station']
+                    'train_number': self.cross_city_train_transfer[t]['train_number'],
+                    'cost': float(self.cross_city_train_transfer[t]['cost']),
+                    'duration': float(self.cross_city_train_transfer[t]['duration']),
+                    'origin_id': self.cross_city_train_transfer[t]['origin_id'],
+                    'origin_station': self.cross_city_train_transfer[t]['origin_station'],
+                    'destination_id': self.cross_city_train_transfer[t]['destination_id'],
+                    'destination_station': self.cross_city_train_transfer[t]['destination_station']
                 },
                 within=pyo.Any
         )
@@ -1290,7 +1286,7 @@ class template:
         self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
         self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
         if self.cfg.multi_stage:
-            self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+            self.model.select_train_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
         ## last day hotel constraint
         if self.ir.total_travel_days > 1:
             def last_day_hotel_constraint(model,h):
@@ -1302,8 +1298,20 @@ class template:
                 rule=last_day_hotel_constraint
             )
 
+        valid_idx = [
+            (d,a,h)
+            for d in days
+            for a in attraction_dict
+            for h in hotel_dict
+            if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+        ]
+        self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
+        self.model.AH_by_day = pyo.Set(
+            self.model.days, dimen=2,
+            initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
+        )
         self.model.attr_hotel = pyo.Var(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             domain=pyo.Binary,
             initialize=0,
             bounds=(0, 1)
@@ -1319,17 +1327,17 @@ class template:
             return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
         self.model.link_attr_hotel1 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule1
         )
         self.model.link_attr_hotel2 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule2
         )
         self.model.link_attr_hotel3 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule3
-        )        
+        )           
         
         self.model.unique_attr = pyo.Constraint(
             self.model.attractions,
@@ -1341,7 +1349,7 @@ class template:
             rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
         )
 
-        transfer_day = 1
+        transfer_day = 0
         if self.cfg.multi_stage:
             transfer_day = self.ir.stages[0].travel_days
         def same_hotel_rule(m, d, h):
@@ -1357,7 +1365,7 @@ class template:
             return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
         
         def stage_hotel_rule(m, d, h):
-            transfer_day = self.ir.stages[0].travel_days
+            transfer_day = self.ir.stages[0].travel_days + 1
             if self.cfg.multi_stage and d == transfer_day:
                 return m.select_hotel[d, h] * ((d + 1) - self.model.hotel_data[h]['start_stage']) * ((d + 1) - self.model.hotel_data[h]['end_stage']) <= 0 ##换乘酒店跨市
             return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
@@ -1380,7 +1388,7 @@ class template:
             )
         if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
             self.model.one_transfer = pyo.Constraint(
-                rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+                rule=lambda m: sum(m.select_train_transfer[t] for t in m.train_transfer) == 1
             )
         ##约束1
 

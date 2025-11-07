@@ -687,8 +687,7 @@ class template:
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
                         )
                 )
-                for a in self.model.attractions
-                for h in self.model.accommodations
+                for (a, h) in self.model.AH_by_day[day]
             )
         else:
             trans_time = 0
@@ -757,8 +756,7 @@ class template:
                                 get_trans_params(self.intra_city_trans, h, a, 'bus_duration')
                         )
                 )
-                for a in self.model.attractions
-                for h in self.model.accommodations
+                for (a, h) in self.model.AH_by_day[day]
             ) if self.ir.total_travel_days > 1 else 0
     
     def get_daily_total_cost(self,day):
@@ -803,8 +801,7 @@ class template:
                         get_trans_params(self.intra_city_trans, h, a, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
+            for (a, h) in self.model.AH_by_day[day]
         ) if self.ir.total_travel_days > 1 else 0
 
         restaurant_cost = sum(
@@ -878,8 +875,7 @@ class template:
                         get_trans_params(self.intra_city_trans, h, a, 'bus_cost') 
                         )
                     ) 
-            for a in self.model.attractions
-            for h in self.model.accommodations
+            for (a, h) in self.model.AH_by_day[day]
         ) if self.ir.total_travel_days > 1 else 0
         
         train_cost = 0
@@ -1177,7 +1173,6 @@ class template:
             self.city_to_day_range = city_to_day_range
             self.day_to_city = day_to_city
             return city_to_day_range,day_to_city
-    
     def make(self, cfg: dynamic_constraint):
 
         city_to_day_range,day_to_city = self.get_city_to_day_range()
@@ -1194,16 +1189,6 @@ class template:
         self.model.restaurants = pyo.Set(initialize=restaurant_dict.keys())
         self.model.train_departure = pyo.Set(initialize=self.cross_city_train_departure.keys())
         self.model.train_back = pyo.Set(initialize=self.cross_city_train_back.keys())
-
-        for key,item in attraction_dict.items():
-            item['start_stage'] = city_to_day_range[ir.stages[0].destinate_city][0]
-            item['end_stage'] = city_to_day_range[ir.stages[0].destinate_city][1]
-        for key,item in hotel_dict.items():
-            item['start_stage'] = city_to_day_range[ir.stages[0].destinate_city][0]
-            item['end_stage'] = city_to_day_range[ir.stages[0].destinate_city][1]
-        for key,item in restaurant_dict.items():
-            item['start_stage'] = city_to_day_range[ir.stages[0].destinate_city][0]
-            item['end_stage'] = city_to_day_range[ir.stages[0].destinate_city][1]
 
         self.model.attr_data = pyo.Param(
             self.model.attractions,
@@ -1283,13 +1268,13 @@ class template:
             self.model.train_transfer_data = pyo.Param(
                 self.model.train_transfer,
                 initialize=lambda m, t: {
-                    'train_number': self.cross_city_train_back[t]['train_number'],
-                    'cost': float(self.cross_city_train_back[t]['cost']),
-                    'duration': float(self.cross_city_train_back[t]['duration']),
-                    'origin_id': self.cross_city_train_back[t]['origin_id'],
-                    'origin_station': self.cross_city_train_back[t]['origin_station'],
-                    'destination_id': self.cross_city_train_back[t]['destination_id'],
-                    'destination_station': self.cross_city_train_back[t]['destination_station']
+                    'train_number': self.cross_city_train_transfer[t]['train_number'],
+                    'cost': float(self.cross_city_train_transfer[t]['cost']),
+                    'duration': float(self.cross_city_train_transfer[t]['duration']),
+                    'origin_id': self.cross_city_train_transfer[t]['origin_id'],
+                    'origin_station': self.cross_city_train_transfer[t]['origin_station'],
+                    'destination_id': self.cross_city_train_transfer[t]['destination_id'],
+                    'destination_station': self.cross_city_train_transfer[t]['destination_station']
                 },
                 within=pyo.Any
         )
@@ -1301,7 +1286,7 @@ class template:
         self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
         self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
         if self.cfg.multi_stage:
-            self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+            self.model.select_train_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
         ## last day hotel constraint
         if self.ir.total_travel_days > 1:
             def last_day_hotel_constraint(model,h):
@@ -1313,8 +1298,20 @@ class template:
                 rule=last_day_hotel_constraint
             )
 
+        valid_idx = [
+            (d,a,h)
+            for d in days
+            for a in attraction_dict
+            for h in hotel_dict
+            if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+        ]
+        self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
+        self.model.AH_by_day = pyo.Set(
+            self.model.days, dimen=2,
+            initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
+        )
         self.model.attr_hotel = pyo.Var(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             domain=pyo.Binary,
             initialize=0,
             bounds=(0, 1)
@@ -1330,17 +1327,17 @@ class template:
             return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
         self.model.link_attr_hotel1 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule1
         )
         self.model.link_attr_hotel2 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule2
         )
         self.model.link_attr_hotel3 = pyo.Constraint(
-            self.model.days, self.model.attractions, self.model.accommodations,
+            self.model.ah_idx,
             rule=link_attr_hotel_rule3
-        )        
+        )           
         
         self.model.unique_attr = pyo.Constraint(
             self.model.attractions,
@@ -1352,7 +1349,7 @@ class template:
             rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
         )
 
-        transfer_day = 1
+        transfer_day = 0
         if self.cfg.multi_stage:
             transfer_day = self.ir.stages[0].travel_days
         def same_hotel_rule(m, d, h):
@@ -1368,7 +1365,7 @@ class template:
             return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
         
         def stage_hotel_rule(m, d, h):
-            transfer_day = self.ir.stages[0].travel_days
+            transfer_day = self.ir.stages[0].travel_days + 1
             if self.cfg.multi_stage and d == transfer_day:
                 return m.select_hotel[d, h] * ((d + 1) - self.model.hotel_data[h]['start_stage']) * ((d + 1) - self.model.hotel_data[h]['end_stage']) <= 0 ##换乘酒店跨市
             return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
@@ -1391,7 +1388,7 @@ class template:
             )
         if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
             self.model.one_transfer = pyo.Constraint(
-                rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+                rule=lambda m: sum(m.select_train_transfer[t] for t in m.train_transfer) == 1
             )
         ##约束1
 
@@ -1490,33 +1487,47 @@ class template:
             self.ast_to_pyomo_constraints(self.model,cfg.daily_total_transportation_budget,{'index_names':['day']},"daily_total_transportation_budget",[self.model.days])
 
         try:
-            self.model.must_have_attraction_1 = pyo.Constraint(
+        #############extra code##############
+
+            self.model.must_have_attr_chengdu_1 = pyo.Constraint(
                 rule=lambda m: sum(
                     self.model.select_attr[d, a]
-                    for d in self.model.days
+                    for d in range(city_to_day_range["成都市"][0],city_to_day_range["成都市"][1] + 1)
                     for a in self.model.attractions
-                    if ('邓世昌纪念馆' in self.model.attr_data[a]['name'])
+                    if ('百花潭公园' in self.model.attr_data[a]['name'])
                 ) >= 1
             )
-            self.model.must_have_attraction_2 = pyo.Constraint(
+            self.model.must_have_attr_luoyang_1 = pyo.Constraint(
                 rule=lambda m: sum(
                     self.model.select_attr[d, a]
-                    for d in self.model.days
+                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
                     for a in self.model.attractions
-                    if ('纯阳观' in self.model.attr_data[a]['name'])
+                    if ('白马寺' in self.model.attr_data[a]['name'])
                 ) >= 1
             )
-            # 高性价比旅行规划目标函数
-            # 在预算约束前提下，最大化整体体验评分并控制不必要开支
+            self.model.must_have_rest_luoyang_1 = pyo.Constraint(
+                rule=lambda m: sum(
+                    self.model.select_rest[d, r]
+                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
+                    for r in self.model.restaurants
+                    if ('鲁记卤肉凉菜' in self.model.rest_data[r]['name'])
+                ) >= 1
+            )
+            self.model.must_have_rest_luoyang_2 = pyo.Constraint(
+                rule=lambda m: sum(
+                    self.model.select_rest[d, r]
+                    for d in range(city_to_day_range["洛阳市"][0],city_to_day_range["洛阳市"][1] + 1)
+                    for r in self.model.restaurants
+                    if ('鲜羊肉汤店' in self.model.rest_data[r]['name'])
+                ) >= 1
+            )
+            # 最小化总花费目标函数
+            # 用户明确要求总花费控制在最低水平
             def objective_rule(model):
-                total_rating = sum(self.get_daily_total_rating(day) for day in days)
                 total_cost = sum(self.get_daily_total_cost(day) for day in days)
-                # 最大化评分，同时最小化成本（高性价比）
-                return total_rating - total_cost
+                return total_cost
 
-            self.model.obj = pyo.Objective(rule=objective_rule, sense=pyo.maximize)
-
-            
+            self.model.obj = pyo.Objective(rule=objective_rule, sense=pyo.minimize)
 
             pass
         #############extra code##############
@@ -1797,13 +1808,56 @@ if __name__ == '__main__':
     poi_data = {'attractions': {}, 'accommodations': {}, 'restaurants': {}}
     intra_city_trans = {}
 
+    ###########################IR && dynamic_constraint#############################
+
     ir_data = """{
-      "start_date": "2025年07月08日",
-      "peoples": 4,
+      "start_date": "2025年07月13日",
+      "peoples": 1,
       "children_num": 0,
-      "total_travel_days": 2,
-      "budgets": 14000,
+      "total_travel_days": 8,
+      "budgets": 0,
+      "stages": [
+        {
+          "original_city": "武汉市",
+          "destinate_city": "成都市",
+          "travel_days": 3,
+          "attraction_constraints": null,
+          "accommodation_constraints": null,
+          "restaurant_constraints": null
+        },
+        {
+          "original_city": "成都市",
+          "destinate_city": "洛阳市",
+          "travel_days": 5,
+          "attraction_constraints": null,
+          "accommodation_constraints": {
+            "type": "op",
+            "op": "==",
+            "left": {
+              "type": "field",
+              "field": "name"
+            },
+            "right": {
+              "type": "value",
+              "value": "洛阳非凡·云联酒店"
+            }
+          },
+          "restaurant_constraints": null
+        }
+      ],
       "departure_transport_constraints": {
+        "type": "op",
+        "op": "==",
+        "left": {
+          "type": "field",
+          "field": "origin_station"
+        },
+        "right": {
+          "type": "value",
+          "value": "武汉站"
+        }
+      },
+      "back_transport_constraints": {
         "type": "op",
         "op": "==",
         "left": {
@@ -1812,70 +1866,27 @@ if __name__ == '__main__':
         },
         "right": {
           "type": "value",
-          "value": "D903"
+          "value": "Z136"
         }
       },
-      "back_transport_constraints": null,
-      "intermediate_transport_constraints": null,
-      "stages": [
-        {
-          "original_city": "北京市",
-          "destinate_city": "广州市",
-          "travel_days": 2,
-          "attraction_constraints": null,
-          "accommodation_constraints": {
-            "type": "op",
-            "op": "and",
-            "left": {
-              "type": "op",
-              "op": "or",
-              "left": {
-                "type": "op",
-                "op": "include",
-                "left": {
-                  "type": "field",
-                  "field": "type"
-                },
-                "right": {
-                  "type": "value",
-                  "value": "经济"
-                }
-              },
-              "right": {
-                "type": "op",
-                "op": "include",
-                "left": {
-                  "type": "field",
-                  "field": "type"
-                },
-                "right": {
-                  "type": "value",
-                  "value": "经济型"
-                }
-              }
-            },
-            "right": {
-              "type": "op",
-              "op": "include",
-              "left": {
-                "type": "field",
-                "field": "type"
-              },
-              "right": {
-                "type": "value",
-                "value": "连锁"
-              }
-            }
-          },
-          "restaurant_constraints": null
+      "intermediate_transport_constraints": {
+        "type": "op",
+        "op": "==",
+        "left": {
+          "type": "field",
+          "field": "origin_station"
+        },
+        "right": {
+          "type": "value",
+          "value": "成都东站"
         }
-      ]
+      }
     }"""
     dc_data = """{
-      "num_travlers": 4,
-      "rooms_per_night": 4,
+      "num_travlers": 1,
+      "rooms_per_night": 1,
       "children_num": 0,
-      "multi_stage": false,
+      "multi_stage": true,
       "peoples_per_car": 4,
       "daily_total_time": {
         "type": "op",
@@ -1897,20 +1908,10 @@ if __name__ == '__main__':
       "total_restaurant_time": null,
       "total_transportation_time": null,
       "infra_city_transportation": {
-        "广州市": "public_transportation"
+        "成都市": "none",
+        "洛阳市": "none"
       },
-      "total_budget": {
-        "type": "op",
-        "op": "<=",
-        "left": {
-          "type": "field",
-          "field": "total_cost"
-        },
-        "right": {
-          "type": "value",
-          "value": 14000
-        }
-      },
+      "total_budget": null,
       "total_meal_budget": null,
       "total_attraction_ticket_budget": null,
       "total_hotel_budget": null,
@@ -1923,15 +1924,13 @@ if __name__ == '__main__':
     }""" 
     ir = ir_from_json(ir_data)
     dc = dynamic_constraint_from_json(dc_data)
-    user_question = """我计划于2025年07月08日至2025年07月09日从北京市前往广州市，开启为期2天的高性价比4人之旅，全程总预算控制在14000元以内。旅行需求包括：全程入住经济型连锁酒店，行程需覆盖邓世昌纪念馆、纯阳观等核心景点；2025年07月08日早上出发、2025年07月09日晚返回。出发交通指定搭乘D903次高铁，市内交通以公交为主，尽可能精简非必要开支。在控制预算的前提下，将优先保障景点品质、餐饮体验和住宿舒适度，并确保每人独立入住房间。"""
-
-
+    user_question = """我计划于2025年07月13日至2025年07月20日从武汉市出发，先前往成都市旅游3天，之后前往洛阳市游玩5天，总花费控制在最低水平，在成都时必须包含百花潭公园。2025年07月13日上午从武汉站乘坐高铁出发，2025年07月15日晚上从成都东站离开，并于当晚抵达洛阳市住宿。在洛阳期间，我会游览白马寺，用餐选择鲁记卤肉凉菜和鲜羊肉汤店，住宿安排在洛阳非凡·云联酒店，并乘坐Z136次列车从洛阳站返回武昌站。市内交通可使用公共交通或打车。"""
 
     ##########################################################
 
     try:
-        # cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
-        from mock import get_mock_data
+        from mock import get_mock_data,generate_stage
+        generate_stage([item.travel_days for item in ir.stages])
         cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data()
         for item in cross_city_train_departure:
             item['cost'] = float(item['cost'])
@@ -1963,7 +1962,7 @@ if __name__ == '__main__':
                 item['duration'] = float(item['duration'])
                 item['queue_time'] = float(item['queue_time'])
         # fetch 数据
-        cross_city_train_departure, cross_city_train_transfer,cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_back=cross_city_train_back,cross_city_train_transfer=cross_city_train_transfer,poi_data=poi_data,ir=ir)
+        cross_city_train_departure, cross_city_train_transfer,cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
         # 粗排: todo
         tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
         tp.make(dc)
@@ -1972,7 +1971,6 @@ if __name__ == '__main__':
         get_solution(tp)
         # get_solution
     except Exception as e:
-        print(e)
         def generate_date_range(start_date, date_format="%Y年%m月%d日"):
             start = datetime.strptime(start_date, date_format)
             days = ir.total_travel_days
