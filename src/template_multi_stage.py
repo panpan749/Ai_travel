@@ -1836,7 +1836,7 @@ if __name__ == '__main__':
     ##########################################################
 
     try:
-        cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir)
+        cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir) #TODO 将该行改为const.py中的代码
         for item in cross_city_train_departure:
             item['cost'] = float(item['cost'])
             item['duration'] = float(item['duration'])
@@ -1868,7 +1868,7 @@ if __name__ == '__main__':
                 item['queue_time'] = float(item['queue_time'])
         # fetch 数据
         cross_city_train_departure, cross_city_train_transfer,cross_city_train_back, poi_data = rough_rank(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,ir=ir)
-        # 粗排: todo
+        # TODO 在下面一行加断点检查数据合法性（看poi_data）
         tp = template(cross_city_train_departure=cross_city_train_departure,cross_city_train_transfer=cross_city_train_transfer,cross_city_train_back=cross_city_train_back,poi_data=poi_data,intra_city_trans=intra_city_trans,ir=ir)
         tp.make(dc)
         # 构造template
