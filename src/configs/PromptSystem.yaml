@@ -154,6 +154,10 @@ static: |
     - 推荐玩当地的某某景点 (属于动态规划约束，忽略！)
     - 其他任何在动态规划期间的约束
   * 如果用户的描述中旅行天数与旅行日期有冲突，以旅行日期的计算为准；如果用户提到了多个日期冲突，比如提到了多个不同的返程日期，以第一次提到的为准。
+  * 游玩天数包括出发当天和返程当天（如果有中转则也包括中转日），不论是上午出发还是下午返程，如果是单阶段的旅行，则total_travel_days = stages[0].travel_days;如果是两阶段的行程，则total_travel_days = stages[0].travel_days + stages[1].travel_days;
+    - 例如：用户从2025年8月21日出发，到桂林游玩5天，2025年8月25日返回，则total_travel_days = stages[0].travel_days = 5;
+    - 例如：用户从2025年9月30日出发，10月8日返回，先去上海玩4天，接着中转去北京游玩剩下的行程；则由日期可知总共玩9天（包括出发日和返程日以及中转日）total_travel_days = 9，stages[0].travel_days = 4, stages[1].travel_days = 5; 
+
   * 任何约束都必须与实体关联才能称之为约束，比如用户希望住民宿，则这是一个酒店的type约束，但是用户希望住靠近海边的酒店，这个靠近海边既无法作为酒店的类型，也无法作为酒店的特色服务（因为这不是服务），所以忽略该约束；主题酒店的主题，精品酒店的精品，特色酒店的特色，均无与之关联的有实际意义的实体，故忽略。所以你在寻找静态约束的时候要关注用户提及的实体。
   * 忽略对酒店地理位置的需求：如靠近海边，靠近市中心。
   * 对于餐厅的需求，你只需关注餐厅的评分和人均价格的需求，忽略用户对餐厅想吃的菜品，餐厅类型等相关的需求。
@@ -191,7 +195,7 @@ static: |
   5. 回顾指南中的示例以及Schema中的协议，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
   6. 若存在跨城交通的静态约束，则根据用户的约束内容，将其作用于其归属的跨城交通区间（出发，中转或返程）(注意，只需分析出发城市与目标城市的跨城往返交通，无需考虑市内的交通)
   7. 回顾IR中的字段，填充每一个字段的值。
-  8. 输出以```json和```包裹的JSON格式的IR。
+  8. 无论如何，你**必须**输出```json和```包裹的JSON格式的IR！！
 
   ### 景点约束示例
   1. 用户希望游玩的景点评分在4.5分以上：
@@ -639,14 +643,14 @@ dynamic: |
   ## pyomo schema设置
   ```python
   def make(self, cfg: dynamic_constraint):
-    city_to_day_range,day_to_city = self.get_city_to_day_range() #这里的返回值是两个字典，分别记录了城市到天数的映射关系和天数到城市的映射关系，比如第1天到第6天（包括两端）在北京，第7天到第10天在深圳
+    city_to_day_range,day_to_city = self.get_city_to_day_range()
     self.cfg = cfg
 
     attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
     hotel_dict = self.poi_data['accommodations']
     restaurant_dict = self.poi_data['restaurants']
     
-    days = range(1,self.ir.travel_days + 1)
+    days = range(1,self.ir.total_travel_days + 1)
     self.model.days = pyo.Set(initialize=days)
     self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
     self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
@@ -678,8 +682,8 @@ dynamic: |
             'type': hotel_dict[h]['type'],
             'rating': float(hotel_dict[h]['rating']),
             'feature': hotel_dict[h]['feature'],
-            'start_stage': int(attraction_dict[h]['start_stage']),
-            'end_stage': int(attraction_dict[h]['end_stage'])
+            'start_stage': int(hotel_dict[h]['start_stage']),
+            'end_stage': int(hotel_dict[h]['end_stage'])
         },
         within=pyo.Any
     )
@@ -695,8 +699,8 @@ dynamic: |
             'recommended_food': restaurant_dict[r]['recommended_food'],
             'queue_time': float(restaurant_dict[r]['queue_time']),
             'duration': float(restaurant_dict[r]['duration']),
-            'start_stage': int(attraction_dict[r]['start_stage']),
-            'end_stage': int(attraction_dict[r]['end_stage'])
+            'start_stage': int(restaurant_dict[r]['start_stage']),
+            'end_stage': int(restaurant_dict[r]['end_stage'])
         },
         within=pyo.Any
     )
@@ -732,13 +736,13 @@ dynamic: |
         self.model.train_transfer_data = pyo.Param(
             self.model.train_transfer,
             initialize=lambda m, t: {
-                'train_number': self.cross_city_train_back[t]['train_number'],
-                'cost': float(self.cross_city_train_back[t]['cost']),
-                'duration': float(self.cross_city_train_back[t]['duration']),
-                'origin_id': self.cross_city_train_back[t]['origin_id'],
-                'origin_station': self.cross_city_train_back[t]['origin_station'],
-                'destination_id': self.cross_city_train_back[t]['destination_id'],
-                'destination_station': self.cross_city_train_back[t]['destination_station']
+                'train_number': self.cross_city_train_transfer[t]['train_number'],
+                'cost': float(self.cross_city_train_transfer[t]['cost']),
+                'duration': float(self.cross_city_train_transfer[t]['duration']),
+                'origin_id': self.cross_city_train_transfer[t]['origin_id'],
+                'origin_station': self.cross_city_train_transfer[t]['origin_station'],
+                'destination_id': self.cross_city_train_transfer[t]['destination_id'],
+                'destination_station': self.cross_city_train_transfer[t]['destination_station']
             },
             within=pyo.Any
     )
@@ -750,11 +754,11 @@ dynamic: |
     self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
     self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
     if self.cfg.multi_stage:
-        self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+        self.model.select_train_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
     ## last day hotel constraint
-    if self.ir.travel_days > 1:
+    if self.ir.total_travel_days > 1:
         def last_day_hotel_constraint(model,h):
-            N = self.ir.travel_days
+            N = self.ir.total_travel_days
             return model.select_hotel[N-1,h] == model.select_hotel[N,h]
         
         self.model.last_day_hotel = pyo.Constraint(
@@ -762,8 +766,20 @@ dynamic: |
             rule=last_day_hotel_constraint
         )
 
+    valid_idx = [
+        (d,a,h)
+        for d in days
+        for a in attraction_dict
+        for h in hotel_dict
+        if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+    ]
+    self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
+    self.model.AH_by_day = pyo.Set(
+        self.model.days, dimen=2,
+        initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
+    )
     self.model.attr_hotel = pyo.Var(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         domain=pyo.Binary,
         initialize=0,
         bounds=(0, 1)
@@ -779,17 +795,17 @@ dynamic: |
         return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
     self.model.link_attr_hotel1 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule1
     )
     self.model.link_attr_hotel2 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule2
     )
     self.model.link_attr_hotel3 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule3
-    )        
+    )           
     
     self.model.unique_attr = pyo.Constraint(
         self.model.attractions,
@@ -801,7 +817,7 @@ dynamic: |
         rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
     )
 
-    transfer_day = 1
+    transfer_day = 0
     if self.cfg.multi_stage:
         transfer_day = self.ir.stages[0].travel_days
     def same_hotel_rule(m, d, h):
@@ -817,6 +833,9 @@ dynamic: |
         return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
     
     def stage_hotel_rule(m, d, h):
+        transfer_day = self.ir.stages[0].travel_days
+        if self.cfg.multi_stage and d == transfer_day:
+            return pyo.Constraint.Skip ##换乘酒店跨市
         return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
     
     def stage_rest_rule(m, d, r):
@@ -837,8 +856,25 @@ dynamic: |
         )
     if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
         self.model.one_transfer = pyo.Constraint(
-            rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+            rule=lambda m: sum(m.select_train_transfer[t] for t in m.train_transfer) == 1
         )
+    ##约束1
+
+    self.model.attr_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
+    )
+
+    self.model.rest_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
+    )
+    
+
+    self.model.hotel_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
+    )
 
     {extra代码占位}
   ```
@@ -1239,14 +1275,14 @@ objective: |
   此章节指示了针对旅行攻略约束求解的变量定义以及各个实体的属性定义，具体见以下代码：
   ```python
   def make(self, cfg: dynamic_constraint):
-    city_to_day_range,day_to_city = self.get_city_to_day_range() #这里的返回值是两个字典，分别记录了城市到天数的映射关系和天数到城市的映射关系，比如第1天到第6天（包括两端）在北京，第7天到第10天在深圳
+    city_to_day_range,day_to_city = self.get_city_to_day_range()
     self.cfg = cfg
 
     attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
     hotel_dict = self.poi_data['accommodations']
     restaurant_dict = self.poi_data['restaurants']
     
-    days = range(1,self.ir.travel_days + 1)
+    days = range(1,self.ir.total_travel_days + 1)
     self.model.days = pyo.Set(initialize=days)
     self.model.attractions = pyo.Set(initialize=attraction_dict.keys())
     self.model.accommodations = pyo.Set(initialize=hotel_dict.keys())
@@ -1278,8 +1314,8 @@ objective: |
             'type': hotel_dict[h]['type'],
             'rating': float(hotel_dict[h]['rating']),
             'feature': hotel_dict[h]['feature'],
-            'start_stage': int(attraction_dict[h]['start_stage']),
-            'end_stage': int(attraction_dict[h]['end_stage'])
+            'start_stage': int(hotel_dict[h]['start_stage']),
+            'end_stage': int(hotel_dict[h]['end_stage'])
         },
         within=pyo.Any
     )
@@ -1295,8 +1331,8 @@ objective: |
             'recommended_food': restaurant_dict[r]['recommended_food'],
             'queue_time': float(restaurant_dict[r]['queue_time']),
             'duration': float(restaurant_dict[r]['duration']),
-            'start_stage': int(attraction_dict[r]['start_stage']),
-            'end_stage': int(attraction_dict[r]['end_stage'])
+            'start_stage': int(restaurant_dict[r]['start_stage']),
+            'end_stage': int(restaurant_dict[r]['end_stage'])
         },
         within=pyo.Any
     )
@@ -1332,13 +1368,13 @@ objective: |
         self.model.train_transfer_data = pyo.Param(
             self.model.train_transfer,
             initialize=lambda m, t: {
-                'train_number': self.cross_city_train_back[t]['train_number'],
-                'cost': float(self.cross_city_train_back[t]['cost']),
-                'duration': float(self.cross_city_train_back[t]['duration']),
-                'origin_id': self.cross_city_train_back[t]['origin_id'],
-                'origin_station': self.cross_city_train_back[t]['origin_station'],
-                'destination_id': self.cross_city_train_back[t]['destination_id'],
-                'destination_station': self.cross_city_train_back[t]['destination_station']
+                'train_number': self.cross_city_train_transfer[t]['train_number'],
+                'cost': float(self.cross_city_train_transfer[t]['cost']),
+                'duration': float(self.cross_city_train_transfer[t]['duration']),
+                'origin_id': self.cross_city_train_transfer[t]['origin_id'],
+                'origin_station': self.cross_city_train_transfer[t]['origin_station'],
+                'destination_id': self.cross_city_train_transfer[t]['destination_id'],
+                'destination_station': self.cross_city_train_transfer[t]['destination_station']
             },
             within=pyo.Any
     )
@@ -1350,11 +1386,11 @@ objective: |
     self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
     self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
     if self.cfg.multi_stage:
-        self.model.select_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
+        self.model.select_train_transfer = pyo.Var(self.model.train_transfer, domain=pyo.Binary) ## todo 换乘数据初始化
     ## last day hotel constraint
-    if self.ir.travel_days > 1:
+    if self.ir.total_travel_days > 1:
         def last_day_hotel_constraint(model,h):
-            N = self.ir.travel_days
+            N = self.ir.total_travel_days
             return model.select_hotel[N-1,h] == model.select_hotel[N,h]
         
         self.model.last_day_hotel = pyo.Constraint(
@@ -1362,8 +1398,20 @@ objective: |
             rule=last_day_hotel_constraint
         )
 
+    valid_idx = [
+        (d,a,h)
+        for d in days
+        for a in attraction_dict
+        for h in hotel_dict
+        if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+    ]
+    self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
+    self.model.AH_by_day = pyo.Set(
+        self.model.days, dimen=2,
+        initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
+    )
     self.model.attr_hotel = pyo.Var(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         domain=pyo.Binary,
         initialize=0,
         bounds=(0, 1)
@@ -1379,17 +1427,17 @@ objective: |
         return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
 
     self.model.link_attr_hotel1 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule1
     )
     self.model.link_attr_hotel2 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule2
     )
     self.model.link_attr_hotel3 = pyo.Constraint(
-        self.model.days, self.model.attractions, self.model.accommodations,
+        self.model.ah_idx,
         rule=link_attr_hotel_rule3
-    )        
+    )           
     
     self.model.unique_attr = pyo.Constraint(
         self.model.attractions,
@@ -1401,7 +1449,7 @@ objective: |
         rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
     )
 
-    transfer_day = 1
+    transfer_day = 0
     if self.cfg.multi_stage:
         transfer_day = self.ir.stages[0].travel_days
     def same_hotel_rule(m, d, h):
@@ -1417,6 +1465,9 @@ objective: |
         return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
     
     def stage_hotel_rule(m, d, h):
+        transfer_day = self.ir.stages[0].travel_days
+        if self.cfg.multi_stage and d == transfer_day:
+            return pyo.Constraint.Skip ##换乘酒店跨市
         return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
     
     def stage_rest_rule(m, d, r):
@@ -1437,8 +1488,25 @@ objective: |
         )
     if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
         self.model.one_transfer = pyo.Constraint(
-            rule=lambda m: sum(m.select_transfer[t] for t in m.train_transfer) == 1
+            rule=lambda m: sum(m.select_train_transfer[t] for t in m.train_transfer) == 1
         )
+    ##约束1
+
+    self.model.attr_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
+    )
+
+    self.model.rest_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
+    )
+    
+
+    self.model.hotel_num = pyo.Constraint(
+        self.model.days,
+        rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
+    )
 
     {objective function code占位符}
   ```
