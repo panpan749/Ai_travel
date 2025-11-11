@@ -480,7 +480,7 @@ dynamic: |
 
   ### 通用配置
   - num_travlers: [int] 旅行人数, 默认为1
-  - rooms_per_night: [int] 每晚的房间数量，默认为人数 / 2取上整数，且孩童不计入人数（例如总共3个人，其中一个是儿童，则也只需要一间房），但当用户有特殊需求时需按用户的需求配置,如用户明确提及了一间房只住一个人。
+  - rooms_per_night: [int] 每晚的房间数量，默认为(num_travlers - children_num) / 2取上整数，孩童不计入人数（例如总共3个人，其中一个是儿童，则只需要一间房），但当用户有特殊需求时需按用户的需求配置,如用户明确提及了一间房只住一个人。
   - children_num: [int] 孩童数量，默认为0
   - multi_stage: [bool] 是否是多阶段旅行（即有多个目标城市要游玩）
   - peoples_per_car: [int] 打车（taxi）时每辆车坐几人，默认为4人
@@ -923,7 +923,7 @@ dynamic: |
     - 例如：用户计划从2025年11月06日至2025年11月08日，从厦门市前往广州市旅游，希望品尝当地的特色茶艺馆，用餐时间与排队时间之和不能超过120分钟,尽量减少不必要的开销。
     - 分析：这里由于没有明确提及是总行程的用餐时间（排队时间）或者一天中总用餐时间（排队时间），故默认是指单个餐厅的人均用餐时间与排队时间之和，故为静态约束，忽略。 
 
-  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，默认在extra中的代码对于每一个菜品(景点)都需要满足,除非用户明确提到了"或"的关系：
+  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，在extra中的代码对于每一个菜品(景点)实体都必须满足,即使用户提到了"或"：
     - 例如: 用户问题：我计划从重庆前往南京进行三天两晚文化+自然之旅，从2025年7月10日出发，7月12日返回，预算30000元，尽可能花光预算。想找评分4.5以上、价格低于600元每晚的高品质住宿；打卡午朝门公园、中华门、美龄宫等热门景点；餐厅人均消费在200元以内；交通方式以地铁公交为主。
     - 分析：这里用户提到了多个景点，则每个景点都要满足（餐厅，菜品相关的约束也同理），代码:
     {
@@ -954,8 +954,8 @@ dynamic: |
     )         
     "
     }
-    - 例如：用户提到了希望在有一次coffee与黄焖鸡的本地体验：
-    - 分析：只要用户没有提到或，就必须每一条都满足：
+    - 例如：用户提到了希望在有一次coffee或黄焖鸡的本地体验：
+    - 分析：所有被提及的实体都必须要满足，所以coffee与黄焖鸡实体必须每一条都满足：
     {
     "extra": "
   self.model.must_have_restaurant_1 = pyo.Constraint(
@@ -1075,21 +1075,37 @@ dynamic: |
         for h in self.model.accommodations
         for d in days
         if '豪华套房' in self.model.hotel_data[h]['type'] or '豪华套房' in self.model.hotel_data[h]['feature']
-    ) == len(days)
+    ) >= 1
   )
   "
   }
 
   示例3：用户计划于2025年10月03日从深圳市出发，先前往厦门市旅游4天，再前往上海市游玩3天；用户想入住汉庭酒店的上海黄兴路地铁站分店，并考虑在柒厢食事雅谈(大宁绿地商业街店)、狗莉莉咖啡GOLiLi Coffee&Bar或星巴克(上海前滩桐晚路店)用餐。
-  分析：该用户计划一场多阶段的旅行；对于入住酒店的需求，这是静态需求，忽略；对于饮食的动态需求，由于没有明确提及这些需求是作用在上海阶段的，故默认作用于全程。且由于用户提到的是或，所以满足一个即可。
+  分析：该用户计划一场多阶段的旅行；对于入住酒店的需求，这是静态需求，忽略；对于饮食的动态需求，由于没有明确提及这些需求是作用在上海阶段的，故默认作用于全程。且所有被提及的实体都必须被满足。
   {
   "extra": "
-    self.model.must_have_rest = pyo.Constraint(
+    self.model.must_have_rest_1 = pyo.Constraint(
       rule=lambda m: sum(
           self.model.select_rest[d, r]
           for d in self.model.days
           for r in self.model.restaurants
-          if ('柒厢食事雅谈(大宁绿地商业街店)' in self.model.rest_data[r]['name'] or '狗莉莉咖啡GOLiLi Coffee' in self.model.rest_data[r]['name'] or '星巴克(上海前滩桐晚路店)' in self.model.rest_data[r]['name'])
+          if ('柒厢食事雅谈(大宁绿地商业街店)' in self.model.rest_data[r]['name'])
+      ) >= 1
+    ) 
+    self.model.must_have_rest_2 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_rest[d, r]
+          for d in self.model.days
+          for r in self.model.restaurants
+          if ('狗莉莉咖啡GOLiLi Coffee' in self.model.rest_data[r]['name'])
+      ) >= 1
+    ) 
+    self.model.must_have_rest_3 = pyo.Constraint(
+      rule=lambda m: sum(
+          self.model.select_rest[d, r]
+          for d in self.model.days
+          for r in self.model.restaurants
+          if ('星巴克(上海前滩桐晚路店)' in self.model.rest_data[r]['name'])
       ) >= 1
     ) 
   "

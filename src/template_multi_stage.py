@@ -597,19 +597,19 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
         return {**item,key:value}
     
     if ir.departure_transport_constraints:
-        if isinstance(ir.departure_transport_constraints,OpNode):
+        if isinstance(ir.departure_transport_constraints,OpNode) or isinstance(ir.departure_transport_constraints, UnaryOpNode):
             cross_city_train_departure = [item for item in cross_city_train_departure if ir.departure_transport_constraints.eval(create_context(item,'global',cross_city_train_departure))]
         elif isinstance(ir.departure_transport_constraints, AggregateNode) and (ir.departure_transport_constraints.func == 'min' or ir.departure_transport_constraints.func == 'max'):
             cross_city_train_departure = ir.departure_transport_constraints.eval({'global':cross_city_train_departure})
   
     if ir.back_transport_constraints:
-        if isinstance(ir.back_transport_constraints,OpNode):
+        if isinstance(ir.back_transport_constraints,OpNode) or isinstance(ir.back_transport_constraints, UnaryOpNode):
             cross_city_train_back = [item for item in cross_city_train_back if ir.back_transport_constraints.eval(create_context(item,'global',cross_city_train_back))]
         elif isinstance(ir.back_transport_constraints, AggregateNode) and (ir.back_transport_constraints.func == 'min' or ir.back_transport_constraints.func == 'max'):
             cross_city_train_back = ir.back_transport_constraints.eval({'global':cross_city_train_back})
 
     if ir.intermediate_transport_constraints:
-        if isinstance(ir.intermediate_transport_constraints,OpNode):
+        if isinstance(ir.intermediate_transport_constraints,OpNode) or isinstance(ir.intermediate_transport_constraints, UnaryOpNode):
             cross_city_train_transfer = [item for item in cross_city_train_transfer if ir.intermediate_transport_constraints.eval(create_context(item,'global',cross_city_train_transfer))]
         elif isinstance(ir.intermediate_transport_constraints, AggregateNode) and (ir.intermediate_transport_constraints.func == 'min' or ir.intermediate_transport_constraints.func == 'max'):
             cross_city_train_transfer = ir.intermediate_transport_constraints.eval({'global':cross_city_train_transfer})
@@ -622,7 +622,7 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
         src_attrs = poi_data['attractions'][idx]
         dest_attrs = src_attrs
         if stg.attraction_constraints:
-            if isinstance(stg.attraction_constraints,OpNode):
+            if isinstance(stg.attraction_constraints,OpNode) or isinstance(stg.attraction_constraints, UnaryOpNode):
                 dest_attrs = [item for item in src_attrs if stg.attraction_constraints.eval(create_context(item,'global',src_attrs))]
             elif isinstance(stg.attraction_constraints, AggregateNode) and (stg.attraction_constraints.func == 'min' or stg.attraction_constraints.func == 'max'):
                 dest_attrs = stg.attraction_constraints.eval({'global':src_attrs})
@@ -630,7 +630,7 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
         src_rests = poi_data['restaurants'][idx]
         dest_rests = src_rests
         if stg.restaurant_constraints:
-            if isinstance(stg.restaurant_constraints,OpNode):
+            if isinstance(stg.restaurant_constraints,OpNode) or isinstance(stg.restaurant_constraints, UnaryOpNode):
                 dest_rests = [item for item in src_rests if stg.restaurant_constraints.eval(create_context(item,'global',src_rests))]
             elif isinstance(stg.restaurant_constraints, AggregateNode) and (stg.restaurant_constraints.func == 'min' or stg.restaurant_constraints.func == 'max'):
                 dest_rests = stg.restaurant_constraints.eval({'global':src_rests})
@@ -638,7 +638,7 @@ def rough_rank(cross_city_train_departure:list[dict],cross_city_train_transfer,c
         src_accos = poi_data['accommodations'][idx]
         dest_accos = src_accos
         if stg.accommodation_constraints:
-            if isinstance(stg.accommodation_constraints,OpNode):
+            if isinstance(stg.accommodation_constraints,OpNode) or isinstance(stg.accommodation_constraints, UnaryOpNode):
                 dest_accos = [item for item in src_accos if stg.accommodation_constraints.eval(create_context(item,'global',src_accos))]
             elif isinstance(stg.accommodation_constraints, AggregateNode) and (stg.accommodation_constraints.func == 'min' or stg.accommodation_constraints.func == 'max'):
                 dest_accos = stg.accommodation_constraints.eval({'global':src_accos})
@@ -746,7 +746,7 @@ class template:
             self.model.select_rest[day, r] * self.model.rest_data[r]['rating']
             for r in self.model.restaurants
         )
-        if day != self.ir.total_travel_days:
+        if day == 1 or (self.cfg.multi_stage and day == self.ir.stages[0].travel_days + 1):
             sum_rating += sum(
                 self.model.select_hotel[day, h] * self.model.hotel_data[h]['rating']
                 for h in self.model.accommodations
@@ -768,6 +768,11 @@ class template:
     def get_daily_hotel_rating(self,day):
         if day == self.ir.total_travel_days:
             return 0
+        if self.cfg.multi_stage and day == self.ir.stages[0].travel_days:
+            return sum(
+            self.model.select_hotel[day + 1, h] * self.model.hotel_data[h]['rating']
+            for h in self.model.accommodations
+        )
         return sum(
             self.model.select_hotel[day, h] * self.model.hotel_data[h]['rating']
             for h in self.model.accommodations
