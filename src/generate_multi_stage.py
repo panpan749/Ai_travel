@@ -12,10 +12,12 @@ prompt_sys = PromptSystem.getSingleton()
 static_prompt = prompt_sys.getPrompt('static')
 dynamic_prompt = prompt_sys.getPrompt('dynamic')
 objective_prompt = prompt_sys.getPrompt('objective')
-llm_static = LLM('qwen3-max',system_prompt=static_prompt)
-llm_dynamic = LLM('qwen3-max',system_prompt=dynamic_prompt)
-llm_objective = LLM('qwen3-max',system_prompt=objective_prompt)
-
+# llm_static = LLM('xop3qwen235b2507',system_prompt=static_prompt)
+# llm_dynamic = LLM('xop3qwen235b2507',system_prompt=dynamic_prompt)
+# llm_objective = LLM('xop3qwen235b2507',system_prompt=objective_prompt)
+llm_static = LLM('deepseek-v3.1',system_prompt=static_prompt)
+llm_dynamic = LLM('deepseek-v3.1',system_prompt=dynamic_prompt)
+llm_objective = LLM('deepseek-v3.1',system_prompt=objective_prompt)
 code_config = []
 problems = {}
 
@@ -387,22 +389,47 @@ async def get_llm_result_parallel(problem_id,write_log = False):
         llm_objective.invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。')
     ]
     results = await asyncio.gather(*tasks)
-    if write_log:
-        log_path = os.path.join(Config.get_global_config().config['log_path'], f'{problem_id}.log')
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.write('#' * 50 + 'static result' + '#' * 50 + '\n\n')
-            f.write(f"{results[0]}\n\n")
-            f.write('#' * 50 + 'dynamic result' + '#' * 50 + '\n\n')
-            f.write(f"{results[1]}\n\n")
-            f.write('#' * 50 + 'objective result' + '#' * 50 + '\n\n')
-            f.write(f"{results[2]}\n\n")
-
-    pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
-    matches = re.findall(pattern, results[2] ,re.DOTALL)
-    objective_result = ""
-    if matches:
-        objective_result = matches[-1].strip()
-    return extract_json_block(results[0]),extract_json_block(results[1]), objective_result
+    type_map = {
+        "static" : llm_static,
+        "dynamic" : llm_dynamic,
+        "objective" : llm_objective
+    }
+    error_block = results
+    error_info = ['static','dynamic', 'objective']
+    def valid(tp, info):
+        if tp == 'objective':
+            pattern = r'(?<=```python)(.*?)(?=```)'   # 非贪婪匹配中间内容
+            matches = re.findall(pattern, info ,re.DOTALL)
+            return matches[-1].strip() if matches else None
+        else:
+            ret = extract_json_block(info)
+            return ret
+    result_json = {}
+    raw_result = {}
+    while True:
+        tmp_error = []
+        for idx,tp in enumerate(error_info):
+            ret = valid(tp, error_block[idx])
+            if not ret:
+                tmp_error.append(tp)
+            else:
+                result_json[tp] = ret
+                raw_result[tp] = error_block[idx]
+        if tmp_error == []:
+            if write_log:
+                log_path = os.path.join(Config.get_global_config().config['log_path'], f'{problem_id}.log')
+                with open(log_path, 'w', encoding='utf-8') as f:
+                    f.write('#' * 50 + 'static result' + '#' * 50 + '\n\n')
+                    f.write(f"{raw_result['static']}\n\n")
+                    f.write('#' * 50 + 'dynamic result' + '#' * 50 + '\n\n')
+                    f.write(f"{raw_result['dynamic']}\n\n")
+                    f.write('#' * 50 + 'objective result' + '#' * 50 + '\n\n')
+                    f.write(f"{raw_result['objective']}\n\n")
+            return result_json['static'], result_json['dynamic'], result_json['objective']
+        error_info = tmp_error
+        print(f'以下类型无法解析出正确结果，待重试 -----------> {error_info}')
+        tasks = [type_map[tp].invoke(f'用户的问题是：{problem},请冷静下来，一步一步仔细思考，给出一个最合适的答案。') for tp in error_info]
+        error_block = await asyncio.gather(*tasks)
 
 
 def create_code_file(template_file_path, code_file_path,insert_code:str, extra_code:str):
@@ -474,8 +501,8 @@ async def main():
     problem_file = Config.get_global_config().config['problem_file']
     MAX_CONCURRENCY = Config.get_global_config().config['max_concurrency']
 
-    break_point = 29
-    end_num = 120
+    break_point = 0
+    end_num = 800
     with open(problem_file, 'r', encoding='utf-8') as f:
         json_problems = json.load(f)
         for item in json_problems:
@@ -496,6 +523,7 @@ async def main():
         }
         code_config.append(sample)
         if break_point > 0 and int(problem) <= break_point:
+            tbar.update(1)
             time.sleep(0.1)
             continue
             
@@ -581,7 +609,7 @@ async def test():
         json_problems = json.load(f)
         for item in json_problems:
             problems[item['question_id']] = item['question'] 
-    problems['10086'] = "我准备在2025年08月20日至2025年08月22日从杭州市前往广州市旅游，2025年08月20日上午从杭州市出发，2025年08月22日晚上返回杭州市，预算不做限制，但尽量缩短通勤时间且禁止入住四星级及以上的酒店，根据上面的需求帮我规划一份方案。"
+    problems['10086'] = "我计划于2025年08月02日从广州市出发，先前往重庆市旅游4天，再前往青岛市旅游4天，总预算为45800元。2025年08月02日上午出发，2025年08月05日晚乘高铁从重庆抵达青岛并入住青岛的欧尊格商务酒店，2025年08月09日晚返回。重庆旅行期间全程坚持公交出行，重点游览重庆长江索道景区；在青岛期间，全程坚持打车出行，我会游览嘉定山公园和冰山之角，就餐选择吉祥馄饨(市北水清沟店)等经济实惠的餐厅，每日就餐时间不超过60分钟，返程乘坐G2080_2次列车从青岛北站至广州北站；旅行全程控制餐饮、住宿及游玩开支."
     test_id = '10086'
     static,dynamic,objective = await get_llm_result_parallel(test_id,write_log=True)
     

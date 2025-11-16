@@ -14,7 +14,7 @@
 # 14.对于多阶段旅行问题，中转当日游览的景点、饭店、市内通勤等活动在前一个城市进行，在下一个城市进行当晚的住宿，城际交通通勤时间不计入当日活动时间。
 
 from mock import get_mock_data
-cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data(days=[item.travel_days for item in ir.stages])
+        cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data(days=[item.travel_days for item in ir.stages])
 
 rest_type = """
 快餐厅,中餐厅,茶艺馆,川菜,湘菜,中式素菜馆,咖啡厅,冷饮店,综合酒楼,日本料理,糕饼店,火锅,福建菜,土菜,西餐厅,江苏菜

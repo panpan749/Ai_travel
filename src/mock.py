@@ -126,10 +126,7 @@ def generate_intra_city_transport(hotel_ids, attraction_ids, seed=42):
     return result
 
 
-hotel_ids = [item['id'] for _ in accommodations for item in _]
-attraction_ids = [item['id'] for _ in attractions for item in _]
 
-infra_transportation_info = generate_intra_city_transport(hotel_ids, attraction_ids)
 
 
 # 美观打印 JSON 格式
@@ -158,6 +155,10 @@ def generate_stage(day_list):
 
 def get_mock_data(is_ground_truth = False ,days = None):
     expand_data(10)
+    hotel_ids = [item['id'] for _ in accommodations for item in _]
+    attraction_ids = [item['id'] for _ in attractions for item in _]
+
+    infra_transportation_info = generate_intra_city_transport(hotel_ids, attraction_ids)
     if days:
         generate_stage(days)
     if is_ground_truth:

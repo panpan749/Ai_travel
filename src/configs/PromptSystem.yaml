@@ -106,7 +106,7 @@ static: |
     'id': (str)酒店id,
     'name': (str)酒店名称,
     'cost': (float)酒店人均价格，单位元,
-    'type': (str)酒店类型，可包含酒店的星级信息等, 如五星级酒店, 也可以是酒店本身的类别，如客栈，旅馆，民宿等等，也可以是连锁酒店(但不包含精品，特色，主题酒店等虚无的类别)
+    'type': (str)酒店类型，可包含酒店的星级信息等, 如五星级酒店, 也可以是连锁酒店(但不包含标准, 精品，特色，主题酒店等虚无的类别)
     'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
     'feature': (str)酒店的特色服务，如'早茶','免费接送','免费停车','会议室'等等
   }
@@ -142,25 +142,68 @@ static: |
   * 不要在输出的约束中包含任何的 **动态** 约束，例如用户希望单日的消费预算小于5000元，该约束只在规划的过程中生效，而在规划前的过滤阶段不生效。
   * 重要：你必须区分存在量词和全称量词的区别，静态约束中只考虑“全称量词”的情况，比如用户希望游玩的景点评分>=4.5,这是全称量词，应该被转换为静态约束；用户希望去"香积寺"玩，这是存在量词，即最终的攻略中存在一个name为"香积寺"的景点，而存在量词不应该被转换为静态约束。
   * 重要：任何明确指定了约束对象字段值的约束都应该被转换为静态约束，任何静态约束条件都必须是可量化的条件或者明确的约束条件，无法量化的需求或不明确的需求无需转换为静态约束条件，如用户希望游玩高评分的景点，但没有指明景点的评分的阈值，则无需转换为静态约束条件。
-  * **重要**：明确说明，你需要**忽略**的动态约束条件包括但不限于以下几点：
-    - 行程中需包含xxx景点 (xxx景点至少大于一次，属于动态规划约束，忽略！)
-    - 希望吃到xx菜品 (含xx菜品的餐厅至少大于一次，属于动态规划约束，忽略！)
-    - 用户想吃的餐厅类型，想去的景点（如想吃川菜，想去长隆，这些都是动态约束）
-    - 预算在xxx元内 (属于动态规划约束，忽略！)
-    - 每日的交通时长在xxx分钟内 (属于动态规划约束，忽略！)
-    - 出行方式偏好打车 (无需关注市内交通，忽略！)
-    - 想一天玩多个景点 (属于动态规划约束，忽略！)
-    - 想吃地方特色菜 (属于动态规划约束，忽略！)
-    - 推荐玩当地的某某景点 (属于动态规划约束，忽略！)
-    - 其他任何在动态规划期间的约束
+  * **重要**：明确说明，你需要**忽略**的动态约束条件包括以下几点：
+    - 用户提及的任何关于景点的**名称，类型**的正向约束，比如想去xxx景点，想去国家级景点; 这些你都要忽略。
+    - 用户提及的任何关于餐厅的**名称，类型和菜品**的正向约束，比如想吃xxx餐厅，想吃xxx菜品; 这些你都要忽略。
+    示例(你必须忽略的正向约束)：
+      - 行程中需包含xxx景点 
+      - 希望吃xxx餐厅
+      - 希望吃到xx菜品 
+      - 用户想吃的餐厅类型，想去的景点
+      - 预算在xxx元内 
+      - 每日的交通时长在xxx分钟内 
+      - 出行方式偏好打车 
+      - 想吃地方特色菜 
+      - 推荐玩当地的某某景点
+      - 其他任何在动态规划期间的约束
+
   * 如果用户的描述中旅行天数与旅行日期有冲突，以旅行日期的计算为准；如果用户提到了多个日期冲突，比如提到了多个不同的返程日期，以第一次提到的为准。
   * 游玩天数包括出发当天和返程当天（如果有中转则也包括中转日），不论是上午出发还是下午返程，如果是单阶段的旅行，则total_travel_days = stages[0].travel_days;如果是两阶段的行程，则total_travel_days = stages[0].travel_days + stages[1].travel_days;
     - 例如：用户从2025年8月21日出发，到桂林游玩5天，2025年8月25日返回，则total_travel_days = stages[0].travel_days = 5;
     - 例如：用户从2025年9月30日出发，10月8日返回，先去上海玩4天，接着中转去北京游玩剩下的行程；则由日期可知总共玩9天（包括出发日和返程日以及中转日）total_travel_days = 9，stages[0].travel_days = 4, stages[1].travel_days = 5; 
+    - 例如：用户希望从2025年9月2日出发，6日后返回，6日包括出发日，所以total_travel_days = 6;
 
-  * 任何约束都必须与实体关联才能称之为约束，比如用户希望住民宿，则这是一个酒店的type约束，但是用户希望住靠近海边的酒店，这个靠近海边既无法作为酒店的类型，也无法作为酒店的特色服务（因为这不是服务），所以忽略该约束；主题酒店的主题，精品酒店的精品，特色酒店的特色，均无与之关联的有实际意义的实体，故忽略。所以你在寻找静态约束的时候要关注用户提及的实体。
+  * 酒店类型和酒店名词的约束必须关联有实际意义的实体，如酒店的星级，连锁等等，无实际意义的实体约束直接忽略，如标准酒店，特色酒店等。
+    当用户需求的实体存在于下面的示例中，则在输出的约束中严格完整地使用下面的对应名词，不能加字或者漏字。如用户希望住便捷的连锁酒店，则连锁这个类型实体可以匹配到下面的"连锁"，故最终在约束中使用"连锁"而非"连锁酒店"。
+    酒店类型(type字段)示例: 
+      - "经济型"
+      - "经济型连锁"
+      - "连锁"
+      - "三星级"
+      - "四星级"
+      - "五星级"
+    酒店名称(name字段)示例：
+      - "龙门智选假日酒店(洛阳龙门高铁站东广场店)",
+      - "天盈宾馆",
+      - "7天连锁酒店(南京林业大学蒋王庙地铁站店)",
+      - "花香盛世酒店",
+      - "万喜酒店(十字街洛邑古城店)",
+      - "维也纳国际酒店(广州白云站石井地铁站店)",
+      - "成都思晨酒店(大丰保利城店)",
+      - "汇丰大酒店",
+      - "麗枫酒店(成都大丰凤凰山体育公园店)",
+      - "洛阳非凡·云联酒店",
+      - "尚客优快捷酒店（金沙滩啤酒城店）",
+      - "青岛海天世园酒店",
+      - "康铂酒店(北京南站天坛店)",
+      - "汉庭酒店的上海黄兴路地铁站分店",
+      - "星程酒店(苏州狮山路高新广场店)",
+      - "府右街宾馆",
+      - "汉庭南京上元门地铁站永济大道酒店",
+      - "美景大酒店",
+      - "北京什刹海皮影文化主题酒店",
+      - "维也纳国际酒店(洛阳龙门高铁市政府店)",
+      - "喆·遇酒店(协和医院北京站地铁站店)",
+      - "宜必思酒店(广州越秀公园地铁站店)",
+      - "北方朗悦酒店",
+      - "上海浦东丽晶酒店",
+      - "欧尊格商务酒店",
+      - "浙江宾馆",
+      - "全能MoCo酒店公寓(吴侯街地铁站正荣中心店)"
+    
   * 忽略对酒店地理位置的需求：如靠近海边，靠近市中心。
-  * 对于餐厅的需求，你只需关注餐厅的评分和人均价格的需求，忽略用户对餐厅想吃的菜品，餐厅类型等相关的需求。
+
+
   * 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。 
   * 除非特别说明，否则所有的大于号和小于号都默认取等，即>=, <=
 
@@ -177,7 +220,8 @@ static: |
       - budgets: 总预算（int，单位：元，默认为0表示无预算限制）
       (虽然预算是动态约束，但是这里你仍然需要填写这个budgets，因为这是配置，不是Expr表达树)
 
-  * 明确说明：在提取需求时，不仅要包括用户明确要求的 "必须做""不能做"，还要包括用户提及的 "推荐项""偏好项""感兴趣的事物"等隐晦的静态约束（如 "推荐住评分大于4.5的酒店"，"朋友建议吃饭排队时长不要超过30分钟"）。只要用户在需求描述中主动提到具体事物（如餐厅、景点、酒店相关的），无论用词是 “推荐” “喜欢” 还是 “想试试”，都默认是需要满足的行程约束。例如，用户说 “朋友推荐住当地的来福酒店”，则需提取需求为 “用户想住来福酒店”。
+  * 明确说明：在提取需求时，不仅要包括用户明确要求的 "必须做""不能做"，还要包括用户提及的 "推荐项""偏好项""感兴趣的事物"等隐晦的静态约束（如 "推荐住评分大于4.5的酒店"，"朋友建议吃饭排队时长不要超过30分钟"）
+  * 特殊：在**酒店需求**中，只要用户在需求描述中主动提到具体事物，无论用词是 “推荐” “喜欢” 还是 “想试试”，都默认是需要满足的行程约束。例如，用户说 “朋友推荐住当地的来福酒店”，则需提取需求为 “用户想住来福酒店”。
     * 但注意：1. 所有的需求必须可用IR和Expr表达树结构进行描述，否则忽略; 2. 即使是隐式需求，你也只需要考虑静态的约束需求
 
   * 在输出IR前，输出按照构建指南执行的详细分析步骤，每一个分析点都必须严格遵循事实情况，不得虚构事实。
@@ -189,13 +233,14 @@ static: |
 
   ### 构建Pipeline
   1. 分析用户需求，分点列出用户的需求，注意显式需求和隐式需求，对于显式需求，写下"[显式需求]"作为标记，对于隐式需求，写下"[隐式需求]"作为标记，确保没有遗漏。
-  2. 过滤掉任何的动态需求或优化目标，只处理用户的静态约束
-  3. 识别出针对特定阶段的静态约束，若用户未明确提及针对特定的阶段，则默认静态约束针对所有阶段
-  4. 对于每一个阶段，将其静态约束按景点，餐厅，酒店三类
-  5. 回顾指南中的示例以及Schema中的协议，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  6. 若存在跨城交通的静态约束，则根据用户的约束内容，将其作用于其归属的跨城交通区间（出发，中转或返程）(注意，只需分析出发城市与目标城市的跨城往返交通，无需考虑市内的交通)
-  7. 回顾IR中的字段，填充每一个字段的值。
-  8. 无论如何，你**必须**输出```json和```包裹的JSON格式的IR！！
+  2. 针对景点和餐厅的名称约束，类型约束和菜品名称约束，只要是正向约束，就必须过滤掉。
+  3. 对于剩余的约束，按【任务说明】过滤掉所有动态约束，保留静态约束。
+  4. 识别出针对特定阶段的静态约束，若用户未明确提及针对特定的阶段，则默认静态约束针对所有阶段
+  5. 对于每一个阶段，将其静态约束按景点，餐厅，酒店三类。对于酒店的约束，提取到的实体必须与上文中的实体示例对应。
+  6. 回顾指南中的示例以及Schema中的协议，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
+  7. 若存在跨城交通的静态约束，则根据用户的约束内容，将其作用于其归属的跨城交通区间（出发，中转或返程）(注意，只需分析出发城市与目标城市的跨城往返交通，无需考虑市内的交通)
+  8. 回顾IR中的字段，填充每一个字段的值。
+  9. 无论如何，你**必须**输出```json和```包裹的JSON格式的IR！！
 
   ### 景点约束示例
   1. 用户希望游玩的景点评分在4.5分以上：
@@ -577,7 +622,9 @@ dynamic: |
    'cost': (float)景点的人均票价,
    'type': (str)景点的类型,如国家级等具有实际意义的类型,
    'rating': (float)景点的评分,范围为[0，5]，一般景点的评分越高，用户体验越好，
-   'duration': (float)景点的游玩时长，单位为分钟
+   'duration': (float)景点的游玩时长，单位为分钟,
+   'start_stage': (int)表示该景点有效的起始天，比如1代表该景点在第1天起有效，包括第1天
+   'end_stage': (int)表示该景点有效的结束天，比如5代表该景点在第5天后无效，第5天仍然有效
   }
   ### Accommodation
   {
@@ -586,7 +633,9 @@ dynamic: |
     'cost': (float)酒店人均价格，单位元,
     'type': (str)酒店类型，可包含酒店的星级信息等,
     'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
-    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等
+    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等,
+    'start_stage': (int)表示该酒店有效的起始天，比如1代表该酒店在第1天起有效，包括第1天
+    'end_stage': (int)表示该酒店有效的结束天，比如5代表该酒店在第5天后无效，第5天仍然有效
   }
   ### Restaurant
   {
@@ -597,7 +646,9 @@ dynamic: |
     'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
     'queue_time': (float)餐厅排队时间，单位为分钟,
     'duration': (float)人均用餐时间，单位为分钟,
-    'recommended_food': (str)该餐厅推荐的菜品
+    'recommended_food': (str)该餐厅推荐的菜品,
+    'start_stage': (int)表示该餐厅有效的起始天，比如1代表该餐厅在第1天起有效，包括第1天
+    'end_stage': (int)表示该餐厅有效的结束天，比如5代表该餐厅在第5天后无效，第5天仍然有效
   }
   ### 跨城交通
   {
@@ -748,8 +799,6 @@ dynamic: |
     )
     ## variables
     self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
-    self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
-    self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
     self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
     self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
     self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
@@ -766,55 +815,140 @@ dynamic: |
             rule=last_day_hotel_constraint
         )
 
-    valid_idx = [
-        (d,a,h)
+    attr_by_day = {
+        d: [a for a, v in attraction_dict.items() if v['start_stage'] <= d <= v['end_stage']]
         for d in days
-        for a in attraction_dict
-        for h in hotel_dict
-        if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+    }
+    rest_by_day = {
+        d: [r for r, v in restaurant_dict.items() if v['start_stage'] <= d <= v['end_stage']]
+        for d in days
+    }
+    self.model.attr_by_day = pyo.Set(self.model.days, dimen=1, initialize=attr_by_day)
+    self.model.rest_by_day = pyo.Set(self.model.days, dimen=1, initialize=rest_by_day)
+    AD_idx = [
+        (d, a)
+        for d in days
+        for a in attr_by_day[d]
     ]
-    self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
-    self.model.AH_by_day = pyo.Set(
-        self.model.days, dimen=2,
-        initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
-    )
-    self.model.attr_hotel = pyo.Var(
-        self.model.ah_idx,
-        domain=pyo.Binary,
-        initialize=0,
-        bounds=(0, 1)
-    )
 
-    def link_attr_hotel_rule1(model, d, a, h):
-        return model.attr_hotel[d, a, h] <= model.select_attr[d, a]
-
-    def link_attr_hotel_rule2(model, d, a, h):
-        return model.attr_hotel[d, a, h] <= model.select_hotel[d,h]
-
-    def link_attr_hotel_rule3(model, d, a, h):
-        return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
-
-    self.model.link_attr_hotel1 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule1
-    )
-    self.model.link_attr_hotel2 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule2
-    )
-    self.model.link_attr_hotel3 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule3
-    )           
+    RD_idx = [
+        (d, r)
+        for d in days
+        for r in rest_by_day[d]
+    ]
     
+    self.model.attr_idx = pyo.Set(dimen=2, initialize=AD_idx)
+    self.model.select_attr = pyo.Var(self.model.attr_idx, domain=pyo.Binary)
+    self.model.rest_idx = pyo.Set(dimen=2, initialize=RD_idx)
+    self.model.select_rest = pyo.Var(self.model.rest_idx, domain=pyo.Binary)
+
+    self.model.taxi_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_time(a,h))
+    self.model.bus_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_time(a,h))
+    self.model.taxi_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_cost(a,h))
+    self.model.bus_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_cost(a,h))
+    self.model.attr_taxi_time = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.taxi_time[a,h] * m.select_hotel[d,h] for h in m.accommodations)
+    )
+    self.model.attr_bus_time = pyo.Expression(
+        self.model.days, self.model.attractions, 
+        rule=lambda m, d, a: sum(m.bus_time[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+    self.model.attr_taxi_cost = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.taxi_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+    self.model.attr_bus_cost = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.bus_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+
+
+    self.model.z_time  = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+    self.model.z_price = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+
+    BIG_M = 10000
+
+    # ===== time =====
+    def ztime_upper1(m, d, a):
+        return m.z_time[d,a] <= m.attr_bus_time[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+    def ztime_upper2(m, d, a):
+        return m.z_time[d,a] <= m.attr_taxi_time[d,a] + BIG_M*(m.trans_mode[d])
+
+    def ztime_lower1(m, d, a):
+        return m.z_time[d,a] >= m.attr_bus_time[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+    def ztime_lower2(m, d, a):
+        return m.z_time[d,a] >= m.attr_taxi_time[d,a] - BIG_M*(m.trans_mode[d])
+
+    # ===== cost =====
+    def zprice_upper1(m, d, a):
+        return m.z_price[d,a] <= m.attr_bus_cost[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+    def zprice_upper2(m, d, a):
+        return m.z_price[d,a] <= m.attr_taxi_cost[d,a] + BIG_M*(m.trans_mode[d])
+
+    def zprice_lower1(m, d, a):
+        return m.z_price[d,a] >= m.attr_bus_cost[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+    def zprice_lower2(m, d, a):
+        return m.z_price[d,a] >= m.attr_taxi_cost[d,a] - BIG_M*(m.trans_mode[d])
+
+
+    self.model.z_time_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper1)
+    self.model.z_time_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper2)
+    self.model.z_time_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower1)
+    self.model.z_time_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower2)
+
+    self.model.z_price_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper1)
+    self.model.z_price_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper2)
+    self.model.z_price_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower1)
+    self.model.z_price_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower2)
+
+    self.model.z_time_var  = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals)
+    self.model.z_price_var = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals) 
+
+    def ztime_var1(m, d, a):
+        return m.z_time_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+    def ztime_var2(m, d, a):
+        return m.z_time_var[d,a] <= m.z_time[d,a] 
+
+    def ztime_var3(m, d, a):
+        return m.z_time_var[d,a] >= m.z_time[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+    def ztime_var4(m, d, a):
+        return m.z_time_var[d,a] >= 0
+
+    self.model.z_time_var1 = pyo.Constraint(self.model.attr_idx, rule=ztime_var1)
+    self.model.z_time_var2 = pyo.Constraint(self.model.attr_idx, rule=ztime_var2)
+    self.model.z_time_var3 = pyo.Constraint(self.model.attr_idx, rule=ztime_var3)
+    self.model.z_time_var4 = pyo.Constraint(self.model.attr_idx, rule=ztime_var4)
+
+    def zprice_var1(m, d, a):
+        return m.z_price_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+    def zprice_var2(m, d, a):
+        return m.z_price_var[d,a] <= m.z_price[d,a] 
+
+    def zprice_var3(m, d, a):
+        return m.z_price_var[d,a] >= m.z_price[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+    def zprice_var4(m, d, a):
+        return m.z_price_var[d,a] >= 0
+
+    self.model.z_price_var1 = pyo.Constraint(self.model.attr_idx, rule=zprice_var1)
+    self.model.z_price_var2 = pyo.Constraint(self.model.attr_idx, rule=zprice_var2)
+    self.model.z_price_var3 = pyo.Constraint(self.model.attr_idx, rule=zprice_var3)
+    self.model.z_price_var4 = pyo.Constraint(self.model.attr_idx, rule=zprice_var4)       
+
+
     self.model.unique_attr = pyo.Constraint(
         self.model.attractions,
-        rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+        rule=lambda m, a: sum(m.select_attr[d, a] for d in range(m.attr_data[a]['start_stage'],m.attr_data[a]['end_stage'] + 1)) <= 1
     )
 
     self.model.unique_rest = pyo.Constraint(
         self.model.restaurants,
-        rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+        rule=lambda m, r: sum(m.select_rest[d, r] for d in range(m.rest_data[r]['start_stage'],m.rest_data[r]['end_stage'] + 1)) <= 1
     )
 
     transfer_day = 0
@@ -826,55 +960,6 @@ dynamic: |
         return m.select_hotel[d, h] == m.select_hotel[d-1, h]
     
     self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
-
-    
-    ## 多阶段景点，酒店，餐饮约束
-    def stage_attr_rule(m, d, a):
-        return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
-    
-    def stage_hotel_rule(m, d, h):
-        transfer_day = self.ir.stages[0].travel_days
-        if self.cfg.multi_stage and d == transfer_day:
-            return pyo.Constraint.Skip ##换乘酒店跨市
-        return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
-    
-    def stage_rest_rule(m, d, r):
-        return m.select_rest[d, r] * (d - self.model.rest_data[r]['start_stage']) * (d - self.model.rest_data[r]['end_stage']) <= 0
-    
-    self.model.stage_attr = pyo.Constraint(self.model.days, self.model.attractions, rule=stage_attr_rule)
-    self.model.stage_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=stage_hotel_rule)
-    self.model.stage_rest = pyo.Constraint(self.model.days, self.model.restaurants, rule=stage_rest_rule)
-
-
-    if len(self.cross_city_train_departure) > 0:
-        self.model.one_departure = pyo.Constraint(
-            rule=lambda m: sum(m.select_train_departure[t] for t in m.train_departure) == 1
-        )
-    if len(self.cross_city_train_back) > 0:
-        self.model.one_back = pyo.Constraint(
-            rule=lambda m: sum(m.select_train_back[t] for t in m.train_back) == 1
-        )
-    if len(self.cross_city_train_transfer) and self.cfg.multi_stage > 0:
-        self.model.one_transfer = pyo.Constraint(
-            rule=lambda m: sum(m.select_train_transfer[t] for t in m.train_transfer) == 1
-        )
-    ##约束1
-
-    self.model.attr_num = pyo.Constraint(
-        self.model.days,
-        rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
-    )
-
-    self.model.rest_num = pyo.Constraint(
-        self.model.days,
-        rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
-    )
-    
-
-    self.model.hotel_num = pyo.Constraint(
-        self.model.days,
-        rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
-    )
 
     {extra代码占位}
   ```
@@ -895,15 +980,19 @@ dynamic: |
     - 你 **无需** 将任何优化目标转换为动态约束条件。 
 
   * **重要**：特殊的动态约束条件：
-    - 行程中需包含xxx景点
-    - 希望吃到xx菜品
-    - 预算在xxx元内
-    - 每日的交通时长在xxx分钟内
-    - 出行方式偏好打车
-    - 想一天玩多个景点
-    - 想吃地方的特定菜
-    - 想玩当地的某某景点
-    以上这些都是动态约束条件，你需要根据用户实际的需求转换为dynamic_constraints
+    - 景点名称相关的约束和景点类型相关的约束
+    - 餐厅名称相关的约束和餐厅类型相关的约束
+    - 菜品相关的约束
+    示例：
+      - 行程中需包含xxx景点
+      - 希望吃到xx菜品
+      - 预算在xxx元内
+      - 每日的交通时长在xxx分钟内
+      - 出行方式偏好打车
+      - 想一天玩多个景点
+      - 想吃地方的特定菜
+      - 想玩当地的某某景点
+    以上这些都是动态约束条件，你需要根据用户实际的需求转换为dynamic_constraints，一般这种复杂约束的需要用代码表示
 
   * **重要**：用户有明确提及的实体相关的自然语言，只要是明确的，有效的实体，均需要考虑提取为需求，至于是静态约束还是动态约束，在之后的步骤再过滤：
     - 正例：用户提到，推荐游玩A景点；由于用户明确提及了A景点，所以需要将其转换为需求；所以这并非看用户的语气，而是看需求的可转换性；
@@ -911,9 +1000,9 @@ dynamic: |
     - 反例：用户提到，想带孩子体验南方风情，这一点语义不明确，也没有提到实体，也无法定量分析，故可以忽略；（强行建模可能导致pyomo无解）
     - 反例：用户提到，想来一场文化和自然之旅，由于没有明确提及实体，也无法定量分析，不能过度解读和强行建模，所以忽略；
     - 反例：用户提到想吃特色中餐厅，这里由于特色是虚无的概念，没有明确的实际意义，故只需要考虑中餐厅作为type的约束。
-    - 不要做任何没有事实依据的揣摩一些用户没有明确提及的内容和概念，模型必须有理有据。
+    - **重要**：一些常见的实体（如景点类型，景点名称，餐厅名称，餐厅类型，菜品名称）列举在【实体指南】中，你可以参考指南中的实体示例来生成约束,对于每一个识别到的实体，你必须完整地抽取整个实体，而不能将实体拆开，比如"天安门-城楼"这个景点你必须完整地保留，不能拆分成"天安门"或"城楼"。
   
-  * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求，如以下例子：
+  * **重要**：用户针对餐厅，景点，酒店的需求往往以分号(；)分隔，你必须通过每个需求的作用域来正确识别用户的需求。酒店需提供早茶，这算酒店的静态约束，你应该忽略。再比如以下例子：
     - 用户需求：我计划从洛阳前往贵阳进行三天两晚文化+自然之旅，希望体验高性价比的行程，从2025年6月20日出发，6月22日返回。想找评分4.7以上、价格低于700元每晚的高品质住宿；打卡黔灵山、白马寺、红枫湖等风景名胜；饮食推荐地道贵州小吃如铜锅牛肉、牛肉粉，人均消费控制在300元以内；交通方式以地铁公交为主。
     - 分析：以"人均消费控制在300元以内"为例，该需求的作用域是在描述餐厅的需求，故这里的人均消费也是指代餐厅的人均价格，所以是静态约束，需要忽略。
 
@@ -923,7 +1012,7 @@ dynamic: |
     - 例如：用户计划从2025年11月06日至2025年11月08日，从厦门市前往广州市旅游，希望品尝当地的特色茶艺馆，用餐时间与排队时间之和不能超过120分钟,尽量减少不必要的开销。
     - 分析：这里由于没有明确提及是总行程的用餐时间（排队时间）或者一天中总用餐时间（排队时间），故默认是指单个餐厅的人均用餐时间与排队时间之和，故为静态约束，忽略。 
 
-  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，在extra中的代码对于每一个菜品(景点)实体都必须满足,即使用户提到了"或"：
+  * **重要**：用户如果提到了多个想吃的菜品或想玩的景点，在extra中的代码对于每一个菜品(景点)实体都必须满足,即使用户提到了"或"，除非看到管道符"|"：
     - 例如: 用户问题：我计划从重庆前往南京进行三天两晚文化+自然之旅，从2025年7月10日出发，7月12日返回，预算30000元，尽可能花光预算。想找评分4.5以上、价格低于600元每晚的高品质住宿；打卡午朝门公园、中华门、美龄宫等热门景点；餐厅人均消费在200元以内；交通方式以地铁公交为主。
     - 分析：这里用户提到了多个景点，则每个景点都要满足（餐厅，菜品相关的约束也同理），代码:
     {
@@ -982,17 +1071,587 @@ dynamic: |
   * 最终输出的dynamic_constraint需以```json和```进行包裹。
 
   ## 约束构建指南
+  
+  ### 【实体指南】
+  **注意**: 当用户问题提及以下实体的时候，你必须完整地使用库中的实体名称，不能加字或者删字。比如用户提到地道中餐厅，则你应当提取"中餐厅",不能加字或少字。
+  * 餐厅名称示例(name字段)：
+    "鲜羊肉汤店",
+    "王氏林记大饼油条(华元路店)",
+    "梅锦轩·佳宴",
+    "美程里酒店(苏州虎丘山风景区金鸡墩地铁站店)",
+    "三湘鮰头鱼(北京大学燕北园店)",
+    "KOI PLUS(上海静安国际中心店)",
+    "狗莉莉咖啡GOLiLi Coffee&Bar",
+    "FINE PARK picnic&canteen",
+    "哈尔滨水饺(后宰门店)",
+    "茶话弄(IMC国际广场店)",
+    "老茶馆",
+    "Yes Lemon就是柠·手打柠檬茶(红山动物园店)",
+    "百香园餐饮",
+    "星巴克(上海前滩桐晚路店)",
+    "浮光之丘MontCake蛋糕(SKP店)",
+    "柒厢食事雅谈(大宁绿地商业街店)",
+    "鲁记卤肉凉菜",
+    "金大吉（河南科技大学开元校区菁园店）",
+    "宜必思酒店(广州越秀公园地铁站店)",
+    "HOME餐厅(景枫法兰谷店)",
+    "有界咖啡",
+    "吉祥馄饨(市北水清沟店)",
+    "肯德基",
+    "KFC",
+    "大阜阳格拉条(虎阜花园店)"
+  * 餐厅类型示例(type字段)：
+    "综合酒楼",
+    "快餐厅",
+    "甜品店",
+    "冷饮店",
+    "茶艺馆",
+    "糕饼店",
+    "日本料理",
+    "大排档",
+    "中式素菜馆",
+    "咖啡厅",
+    "火锅店",
+    "西餐厅",
+    "中餐厅",
+    "川菜",
+    "清真菜馆",
+    "湖南菜",
+    "湘菜",
+    "北京菜",
+    "山东菜",
+    "住宅小区" (这种类型是指巷子里的苍蝇馆子，所以算餐厅类型)
+  * 景点名称示例(name字段)：
+    "长坡岭国家森林公园",
+    "红岩革命纪念馆",
+    "深圳市清真寺",
+    "苏州市吴中太湖旅游区",
+    "贵御温泉",
+    "北京奥林匹克公园",
+    "九龙山景区",
+    "三元里人民抗英斗争纪念馆",
+    "重庆欢乐海底世界",
+    "基督教沙面会堂",
+    "鹿冲关森林公园",
+    "苏州上方山国家森林公园",
+    "陵门",
+    "深圳野生动物园",
+    "神仙树公园",
+    "倒盏民俗村",
+    "北平图书馆旧址",
+    "虎丘山风景区",
+    "雷峰塔景区",
+    "天安门广场",
+    "杭州西湖风景名胜区-黄龙洞",
+    "双塔",
+    "天鹅湖景区",
+    "贵阳喀斯特公园",
+    "东湖落雁景区",
+    "增埗公园",
+    "狐尾山公园",
+    "厦门老院子景区",
+    "上海音乐谷",
+    "玩月坡景区",
+    "天河潭旅游度假区",
+    "邓世昌纪念馆",
+    "昙华林景区",
+    "玩月坡",
+    "福田红树林自然保护区",
+    "青岛电视塔",
+    "金陵小城",
+    "思月书院",
+    "观山湖公园-贵州生态体育公园",
+    "洲头咀公园",
+    "巢凤禅寺",
+    "中山公园",
+    "成都露天音乐公园",
+    "信号山公园",
+    "花石楼",
+    "厦门市鼓浪屿风景名胜区-皓月园",
+    "黄兴公园",
+    "天平山风景名胜区",
+    "钱塘江大桥",
+    "甘坑古镇",
+    "梅兰芳纪念馆",
+    "小鱼山",
+    "集美鳌园景区",
+    "白马寺",
+    "云溪植物园",
+    "天府熊猫塔",
+    "崖州故城",
+    "红山森林动物园",
+    "沪西清真寺",
+    "庆丰公园",
+    "北海公园",
+    "南园公园",
+    "崂山风景区",
+    "长江索道",
+    "上海豫园",
+    "72家房客拍摄基地",
+    "大韩民国临时政府旧址",
+    "欢乐港湾",
+    "基督教江苏路堂",
+    "世界公园",
+    "狮子林",
+    "百花潭公园",
+    "天府芙蓉园",
+    "龙潭中湖公园",
+    "观音山巨鹏飞梦幻海岸景区",
+    "宣武艺园",
+    "安喜门",
+    "西普陀寺",
+    "南京国防园",
+    "珠江琶醍啤酒文化创意艺术区",
+    "赤岗塔景区",
+    "锦里古街",
+    "东郊记忆",
+    "人民解放纪念碑",
+    "杭州西湖风景名胜区",
+    "青岛沧口公园",
+    "皇城清真寺",
+    "皇岗公园",
+    "深圳湾公园",
+    "倒盏民俗村景区",
+    "东林寺",
+    "西子驿曲院风荷",
+    "杭州西湖风景名胜区-浴鹄湾景区",
+    "归元禅寺",
+    "红枫湖",
+    "宝通禅寺",
+    "东单公园",
+    "白马涧龙池风景区",
+    "洛阳牡丹园",
+    "浓园国际艺术村",
+    "汉口水塔美食街",
+    "塔子山公园",
+    "浦口公园",
+    "文殊院",
+    "静安寺",
+    "贵州森林野生动物园",
+    "武汉防汛纪念碑",
+    "黔明古寺",
+    "四美塘公园",
+    "钟山风景名胜区",
+    "汉阳公园",
+    "南京珍珠泉风景区",
+    "解放公园",
+    "东湖生态旅游风景区",
+    "重庆欢乐海底世界景区",
+    "杭州宋城",
+    "总统府",
+    "鼓浪屿风景名胜区景区",
+    "幸福梅林",
+    "龙潭公园",
+    "龙华寺",
+    "唐寅园",
+    "越秀公园",
+    "中国阳明文化园",
+    "惠和石文化园",
+    "重庆动物园",
+    "德胜门箭楼",
+    "小河历史文化街区",
+    "浣花溪公园",
+    "首义公园",
+    "红飘带",
+    "小湾河湿地公园",
+    "小青岛公园",
+    "昙华林",
+    "红领巾公园",
+    "紫禁城神武门",
+    "平江路",
+    "万安山旅游度假区",
+    "流花湖公园",
+    "余荫山房",
+    "鼓浪屿风景名胜区-皓月园",
+    "外滩",
+    "恭王府博物馆",
+    "南山公园",
+    "南锣鼓巷",
+    "大夫山森林公园景区",
+    "荔湾湖公园",
+    "金茂大厦88层观光厅",
+    "鼓浪屿风景名胜区",
+    "黄大仙祠",
+    "东方明珠广播电视塔景区",
+    "广州鲁迅纪念馆",
+    "洪崖洞民俗风貌区",
+    "浙江革命烈士纪念馆",
+    "贵阳阿哈湖国家湿地公园",
+    "杭州西湖风景名胜区-长桥溪水生态修复公园",
+    "太阳湖滨河公园",
+    "西园寺",
+    "青岛山一战遗址公园",
+    "海印公园",
+    "观山湖区双拥公园",
+    "红树林海滨生态公园",
+    "国子监",
+    "智化寺",
+    "赤岗塔",
+    "景阳森林公园",
+    "青岛取引所旧址",
+    "冰山之角",
+    "三圣花乡·花乡农居",
+    "棠湖公园",
+    "黔灵山公园动物园",
+    "宝岛公园",
+    "青岛梅园",
+    "中华全国总工会旧址",
+    "贵阳百花湖风景名胜区",
+    "黄鹤楼",
+    "东方文化园",
+    "洛邑古城景区",
+    "菖蒲河公园",
+    "胡雪岩故居",
+    "雍和宫",
+    "勑赐广化寺",
+    "海幢寺景区",
+    "复兴公园",
+    "老君洞道观",
+    "普度寺遗址",
+    "纯阳观",
+    "双塔景区",
+    "仁威祖庙",
+    "月亮湖",
+    "中央电视塔",
+    "青年湖公园",
+    "中联运动公园(市北店)",
+    "塔山公园景区",
+    "塔山公园",
+    "黄花岗公园",
+    "国际非物质文化遗产博览园",
+    "北京基督教会崇文门堂",
+    "天主教北京总教区东交民巷圣弥厄尔天主堂",
+    "五老峰植物园",
+    "观音山巨鹏飞梦幻海岸",
+    "港仔后海滨沙滩",
+    "永庆坊",
+    "贵阳市森林公园",
+    "白云仙馆",
+    "广东梧桐山风景名胜区",
+    "古运河夜游",
+    "耦园",
+    "钱学森故居",
+    "朝天宫",
+    "淮海公园",
+    "云台花园",
+    "小桃园清真寺",
+    "武汉长江大桥",
+    "广州动物园",
+    "四美塘公园景区",
+    "洛阳红山欢乐世界",
+    "大观园",
+    "寒山寺",
+    "汉口中华全国总工会旧址纪念馆",
+    "合江亭",
+    "北京路文化旅游区",
+    "盘门景区",
+    "天坛公园",
+    "万芳亭公园",
+    "浓园国际艺术村景区",
+    "孙中山大元帅府纪念馆",
+    "坝子桥",
+    "起义门",
+    "六榕寺",
+    "青羊宫",
+    "二程文化园",
+    "马鞍山公园",
+    "洛邑古城",
+    "天竺山森林公园",
+    "唐岛湾景区",
+    "团结湖公园",
+    "幕燕滨江·达摩古洞景区",
+    "旺山景区",
+    "广州起义烈士陵园",
+    "大报恩塔",
+    "双流空港花田",
+    "回教寺",
+    "南普陀寺",
+    "江洋畈生态公园",
+    "黄浦江",
+    "阅山湖公园",
+    "花果园湿地公园",
+    "深圳南山青青世界",
+    "成都大熊猫繁育研究基地",
+    "嘉定山公园",
+    "湘湖国家旅游度假区-越堤",
+    "成都动物园",
+    "巴公房子",
+    "报恩寺",
+    "北京市基督教会珠市口堂",
+    "花溪夜郎谷",
+    "上天竺法喜讲寺",
+    "上海大宁公园",
+    "七彩湖公园",
+    "广州塔",
+    "海上世界",
+    "江浦公园",
+    "天主教上海教区徐家汇圣依纳爵主教座堂",
+    "后襄河公园",
+    "弘福寺",
+    "北京牛街礼拜寺",
+    "天安门-城楼",
+    "武汉园博园",
+    "龙门石窟",
+    "拱宸桥",
+    "基督教深圳堂",
+    "故宫博物院",
+    "木渎古镇",
+    "百花湖森林公园",
+    "湘湖国家旅游度假区",
+    "珠江夜游(大沙头码头)",
+    "怡园",
+    "青岛第三海水浴场",
+    "地王观光·深港之窗",
+    "大梅沙海滨公园",
+    "三亚千古情景区",
+    "花溪公园",
+    "万安山旅游度假区景区",
+    "东湖公园",
+    "望江楼公园",
+    "大慈寺",
+    "登高云山森林公园",
+    "灵玲动物王国",
+    "广州兰圃",
+    "观象山公园",
+    "思澄堂",
+    "珠江夜游(海心沙西区码头)",
+    "石湖景区",
+    "五道营胡同",
+    "重庆长江索道" 
+  * 景点类型示例(type字段):
+    "商业街",
+    "动物园",
+    "国家级",
+    "景区",
+    "纪念馆",
+    "植物园",
+    "产业园区",
+    "寺庙",
+    "森林公园",
+    "休闲场所",
+    "生态公园",
+    "风景区",
+    "道观",
+    "省级",
+    "公园",
+    "展览馆",
+    "风景名胜",
+    "美术馆",
+    "旅游景点",
+    "红色景区",
+    "教堂",
+    "世界遗产"
+  * 菜品名称示例(recommended_food字段):
+    "综合酒楼",
+    "番茄牛骨汤",
+    "牛排",
+    "北京涮肉",
+    "咖喱牛肉汤",
+    "漫漫玫香",
+    "活拌生虾",
+    "白菜",
+    "木耳炒肉",
+    "乳鸽",
+    "猫咖啡",
+    "鱼泡烧牛肉",
+    "火腿月饼",
+    "窝窝头",
+    "海鲜拼盘",
+    "羊肝菌焗鲜鲍",
+    "农家小炒肉",
+    "鳗鱼",
+    "煎包",
+    "萝卜糕",
+    "金玉满堂",
+    "手工包子",
+    "杂酱面",
+    "桂花鱼",
+    "鲍鱼",
+    "火腿",
+    "川菜",
+    "银耳汤",
+    "牛肉",
+    "蟹黄",
+    "鸡肉",
+    "黄金鸡块",
+    "凉粉",
+    "大块牛排煮着吃",
+    "鸭肉",
+    "椒盐罗氏虾",
+    "地道粤菜",
+    "羊排",
+    "叉烧",
+    "刺身",
+    "SOE耶加雪菲美式",
+    "羊肚仁",
+    "桑葚",
+    "芋缘花淇淋",
+    "特色烤肉",
+    "胡椒猪肚鸡",
+    "酱板鸭",
+    "清炒苕尖",
+    "熏鸡",
+    "炒河粉",
+    "素食",
+    "手冲咖啡",
+    "鸡皮",
+    "肯德基",
+    "鲜毛肚",
+    "火锅",
+    "早茶",
+    "麻豆腐",
+    "鸭架",
+    "香油蒜碟",
+    "大饼油条",
+    "蒜茸苋菜",
+    "自助烧烤",
+    "捞汁海螺",
+    "桃酥",
+    "西湖醋鱼",
+    "重庆火锅",
+    "羊散丹",
+    "鹅肝",
+    "擀面皮",
+    "沙拉",
+    "嫩牛肉",
+    "虎皮卷",
+    "鲜牛肉火锅",
+    "冰镇莲子米",
+    "日本菜",
+    "重庆烧鸡公",
+    "生椰拿铁",
+    "芋缘花淇淋",
+    "空心菜",
+    "江苏菜",
+    "榴莲酥",
+    "清真烧烤",
+    "松鼠桂鱼",
+    "十三香小龙虾",
+    "牛乳",
+    "老妈蹄花",
+    "春叶浮萍",
+    "浓汤",
+    "铜锅牛肉",
+    "夫妻肺片",
+    "劲脆鸡腿堡",
+    "海宝炒土鸡",
+    "蒸卤面",
+    "香辣鸡腿堡",
+    "芋泥",
+    "竹报平安面",
+    "荠菜馄饨",
+    "老肉片",
+    "茶油",
+    "芋圆",
+    "牛排火锅",
+    "牛油",
+    "素三鲜",
+    "伴柠伴桔鲜果茶",
+    "金枪鱼",
+    "芝士",
+    "小馄饨",
+    "串串",
+    "韭菜猪血",
+    "鸭肠",
+    "鲜花饼",
+    "铁板咖喱杏包菇",
+    "野菜",
+    "炒疙瘩",
+    "冬阴功汤",
+    "香菇排骨",
+    "绿豆沙",
+    "铁锅炖大鹅",
+    "蓝莓蛋糕",
+    "泡椒大虾",
+    "馄饨",
+    "牛杂火锅",
+    "老火锅",
+    "可可碎片星冰乐",
+    "烤鱼",
+    "甲鱼",
+    "素夹馍",
+    "鮰鱼",
+    "刀鱼馄饨",
+    "香辣鸡腿堡",
+    "劲脆鸡腿堡",
+    "神仙鸡",
+    "铁锅炖",
+    "千层肚",
+    "卤鸭头",
+    "老北京鸡肉卷",
+    "蛋包饭",
+    "香鹅",
+    "漠北红焖羊肉",
+    "招牌奶茶",
+    "超级全家福",
+    "烤肉",
+    "顺水鱼",
+    "云腿月饼",
+    "水煮牛排",
+    "小陨石抹茶厚乳",
+    "掌中宝",
+    "扁豆焖面套餐",
+    "杨枝甘露",
+    "披萨",
+    "老北京鸡肉卷",
+    "蒙古面筋",
+    "牛肚王",
+    "毛肚",
+    "艾窝窝",
+    "coffee",
+    "椰奶",
+    "韭菜",
+    "溜木须",
+    "东北菜",
+    "星冰乐",
+    "鲍汁",
+    "鲁菜",
+    "小食拼盘",
+    "牛肉粉",
+    "海鲜火锅",
+    "双人餐",
+    "糍粑",
+    "海豚鱼丸酿葛仙米",
+    "椰子",
+    "酸辣土豆丝",
+    "鸭肠火锅",
+    "酥肉",
+    "柴火鸡",
+    "可乐",
+    "黄油",
+    "宫保鸡丁",
+    "炸酱面",
+    "南瓜粥",
+    "蟹肉",
+    "素斋",
+    "烧腊",
+    "肥肠",
+    "荠菜圆子",
+    "拌西红柿",
+    "韩式炸鸡",
+    "格拉条",
+    "铁板豆腐",
+    "小蛋糕",
+    "大块鲜牛排煮着吃",
+    "土菜",
+    "姜母鸭",
+    "木桶饭",
+    "福建菜",
+    "小炒肉",
+    "鱼泡",
+    "养生羊肉汤" 
 
   ### 约束构建管线（严格遵循）
   1. 分析用户需求，分点列出用户的需求，注意显式需求和隐式需求，对于显式需求，写下"[显式需求]"作为标记，对于隐式需求，写下"[隐式需求]"作为标记，确保没有遗漏。
   2. 过滤掉任何的静态需求或优化目标，只处理用户的动态约束
   3. 过滤掉无法定量分析也没有明确提及实体的语义不明的无效需求
   4. 若用户的餐厅需求或景点需求提到了多个想去（想吃）的目标，检查是合取约束还是或约束，若用户未明确提及则为合取约束，则每个目标实体都至少要满足一次。
-  5. 将剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
-  6. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
-  7. 回顾用户的需求，检查是否有遗漏的隐晦需求（包含有实际意义的实体），确保提取了所有符合用户偏好的需求。
-  8. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
-  9. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
+  5. 尝试在【实体指南】中检索目前识别到的动态约束中的实体，若检索到则使用实体指南中的特定实体名词。
+  6. 将目前剩余的动态约束按dynamic_constraint中的字段分类，如每日总开销等等，若用户的需求无法用预设的字段描述，则记住它，并稍后在extra字段中填写针对其需求的代码。
+  7. 回顾指南中的示例以及预设字段和，将每类约束条件解析为dict形式的Expr树，并形成constraint的JSON。
+  8. 回顾用户的需求，检查是否有遗漏的隐晦需求（包含有实际意义的实体），确保提取了所有符合用户偏好的需求。
+  9. **重要** ：回顾用户的需求，并仔细检查是否有dynamic_constraint无法描述的用户需求，针对这些需求编写python代码，并填入extra字段中。
+  10. 整理所有信息，将每个约束填写到dynamic_constraint的字段中，最终输出以```json和```包裹的JSON格式的dynamic_constraint。
 
   ### 约束示例
   ```json
@@ -1057,13 +1716,13 @@ dynamic: |
           self.model.select_rest[d, r] ##注意这里统一用self.model而不是m，确保代码鲁棒性
           for r in self.model.restaurants
           for d in days
-          if '火锅' in self.model.rest_data[r]['type'] or '火锅' in self.model.rest_data[r]['recommended_food'] or '川菜' in self.model.rest_data[r]['type'] ##type代表类型，recommended_food代表实际菜品
+          if 川菜' in self.model.rest_data[r]['type'] ##type代表类型，recommended_food代表实际菜品
       ) >= 1
     )
   "
   }
   代码分析：
-  首先回顾川菜有哪些，取出典型的"火锅"；故用户的需求可以表示为在行程中至少选择一家餐厅，其餐厅类型带有'火锅'或'川菜'标识，或者推荐菜品中含有'火锅'。注意代码在extra占位符中的作用域。
+  用户的需求可以表示为在行程中至少选择一家餐厅，其餐厅类型带有'川菜'标识，。注意代码在extra占位符中的作用域。
 
   示例2：用户想要预订一间豪华套房
   分析：该需求转换为约束即酒店的type或者feature中要包含"豪华套房",该需求同样无法用预设的字段和Expr表达树进行表达，故需要填写extra字段中的代码。
@@ -1081,7 +1740,7 @@ dynamic: |
   }
 
   示例3：用户计划于2025年10月03日从深圳市出发，先前往厦门市旅游4天，再前往上海市游玩3天；用户想入住汉庭酒店的上海黄兴路地铁站分店，并考虑在柒厢食事雅谈(大宁绿地商业街店)、狗莉莉咖啡GOLiLi Coffee&Bar或星巴克(上海前滩桐晚路店)用餐。
-  分析：该用户计划一场多阶段的旅行；对于入住酒店的需求，这是静态需求，忽略；对于饮食的动态需求，由于没有明确提及这些需求是作用在上海阶段的，故默认作用于全程。且所有被提及的实体都必须被满足。
+  分析：该用户计划一场多阶段的旅行；对于入住酒店的需求，这是静态需求，忽略；对于饮食的动态需求，由于没有明确提及这些需求是作用在上海阶段的，故默认作用于全程。且所有被提及的实体都必须被满足，这些实体可以在【实体指南】中检索到，故使用实体指南中的名词。
   {
   "extra": "
     self.model.must_have_rest_1 = pyo.Constraint(
@@ -1152,7 +1811,7 @@ dynamic: |
   }
 
   示例5：我计划于2025年08月27日至2025年08月29日从广州市前往贵阳市，开启为期3天的高性价比2人休闲之旅。旅行要求全程禁止入住三星级及以上标准酒店。
-  分析：该用户希望全程禁止入住三星级以及以上的酒店，这是一个反向约束，需要填写extra字段中的代码。
+  分析：该用户希望全程禁止入住三星级以及以上的酒店，注意，这是一个反向约束，需要填写extra字段中的代码。
   {
   "extra": "
     self.model.forbid_hotel = pyo.Constraint(
@@ -1176,6 +1835,7 @@ dynamic: |
     "rooms_per_night": 1,
     "children_num" : 1,
     "multi_stage": false,
+    "peoples_per_car": 4,
     "daily_total_time": {
       "type": "op",
       "op": "<=",
@@ -1396,8 +2056,6 @@ objective: |
     )
     ## variables
     self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
-    self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
-    self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
     self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
     self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
     self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
@@ -1414,55 +2072,140 @@ objective: |
             rule=last_day_hotel_constraint
         )
 
-    valid_idx = [
-        (d,a,h)
+    attr_by_day = {
+        d: [a for a, v in attraction_dict.items() if v['start_stage'] <= d <= v['end_stage']]
         for d in days
-        for a in attraction_dict
-        for h in hotel_dict
-        if (attraction_dict[a]['start_stage'] <= d <= attraction_dict[a]['end_stage'] ) and (hotel_dict[h]['start_stage'] <= d <= hotel_dict[h]['end_stage'])
+    }
+    rest_by_day = {
+        d: [r for r, v in restaurant_dict.items() if v['start_stage'] <= d <= v['end_stage']]
+        for d in days
+    }
+    self.model.attr_by_day = pyo.Set(self.model.days, dimen=1, initialize=attr_by_day)
+    self.model.rest_by_day = pyo.Set(self.model.days, dimen=1, initialize=rest_by_day)
+    AD_idx = [
+        (d, a)
+        for d in days
+        for a in attr_by_day[d]
     ]
-    self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
-    self.model.AH_by_day = pyo.Set(
-        self.model.days, dimen=2,
-        initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
-    )
-    self.model.attr_hotel = pyo.Var(
-        self.model.ah_idx,
-        domain=pyo.Binary,
-        initialize=0,
-        bounds=(0, 1)
-    )
 
-    def link_attr_hotel_rule1(model, d, a, h):
-        return model.attr_hotel[d, a, h] <= model.select_attr[d, a]
-
-    def link_attr_hotel_rule2(model, d, a, h):
-        return model.attr_hotel[d, a, h] <= model.select_hotel[d,h]
-
-    def link_attr_hotel_rule3(model, d, a, h):
-        return model.attr_hotel[d, a, h] >= model.select_attr[d, a] + model.select_hotel[d, h] - 1
-
-    self.model.link_attr_hotel1 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule1
-    )
-    self.model.link_attr_hotel2 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule2
-    )
-    self.model.link_attr_hotel3 = pyo.Constraint(
-        self.model.ah_idx,
-        rule=link_attr_hotel_rule3
-    )           
+    RD_idx = [
+        (d, r)
+        for d in days
+        for r in rest_by_day[d]
+    ]
     
+    self.model.attr_idx = pyo.Set(dimen=2, initialize=AD_idx)
+    self.model.select_attr = pyo.Var(self.model.attr_idx, domain=pyo.Binary)
+    self.model.rest_idx = pyo.Set(dimen=2, initialize=RD_idx)
+    self.model.select_rest = pyo.Var(self.model.rest_idx, domain=pyo.Binary)
+
+    self.model.taxi_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_time(a,h))
+    self.model.bus_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_time(a,h))
+    self.model.taxi_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_cost(a,h))
+    self.model.bus_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_cost(a,h))
+    self.model.attr_taxi_time = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.taxi_time[a,h] * m.select_hotel[d,h] for h in m.accommodations)
+    )
+    self.model.attr_bus_time = pyo.Expression(
+        self.model.days, self.model.attractions, 
+        rule=lambda m, d, a: sum(m.bus_time[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+    self.model.attr_taxi_cost = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.taxi_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+    self.model.attr_bus_cost = pyo.Expression(
+        self.model.days, self.model.attractions,
+        rule=lambda m, d, a: sum(m.bus_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+
+
+    self.model.z_time  = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+    self.model.z_price = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+
+    BIG_M = 10000
+
+    # ===== time =====
+    def ztime_upper1(m, d, a):
+        return m.z_time[d,a] <= m.attr_bus_time[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+    def ztime_upper2(m, d, a):
+        return m.z_time[d,a] <= m.attr_taxi_time[d,a] + BIG_M*(m.trans_mode[d])
+
+    def ztime_lower1(m, d, a):
+        return m.z_time[d,a] >= m.attr_bus_time[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+    def ztime_lower2(m, d, a):
+        return m.z_time[d,a] >= m.attr_taxi_time[d,a] - BIG_M*(m.trans_mode[d])
+
+    # ===== cost =====
+    def zprice_upper1(m, d, a):
+        return m.z_price[d,a] <= m.attr_bus_cost[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+    def zprice_upper2(m, d, a):
+        return m.z_price[d,a] <= m.attr_taxi_cost[d,a] + BIG_M*(m.trans_mode[d])
+
+    def zprice_lower1(m, d, a):
+        return m.z_price[d,a] >= m.attr_bus_cost[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+    def zprice_lower2(m, d, a):
+        return m.z_price[d,a] >= m.attr_taxi_cost[d,a] - BIG_M*(m.trans_mode[d])
+
+
+    self.model.z_time_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper1)
+    self.model.z_time_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper2)
+    self.model.z_time_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower1)
+    self.model.z_time_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower2)
+
+    self.model.z_price_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper1)
+    self.model.z_price_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper2)
+    self.model.z_price_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower1)
+    self.model.z_price_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower2)
+
+    self.model.z_time_var  = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals) #市内交通时间变量，通过attr_idx索引取值
+    self.model.z_price_var = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals) #市内交通花费变量，通过attr_idx索引取值
+
+    def ztime_var1(m, d, a):
+        return m.z_time_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+    def ztime_var2(m, d, a):
+        return m.z_time_var[d,a] <= m.z_time[d,a] 
+
+    def ztime_var3(m, d, a):
+        return m.z_time_var[d,a] >= m.z_time[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+    def ztime_var4(m, d, a):
+        return m.z_time_var[d,a] >= 0
+
+    self.model.z_time_var1 = pyo.Constraint(self.model.attr_idx, rule=ztime_var1)
+    self.model.z_time_var2 = pyo.Constraint(self.model.attr_idx, rule=ztime_var2)
+    self.model.z_time_var3 = pyo.Constraint(self.model.attr_idx, rule=ztime_var3)
+    self.model.z_time_var4 = pyo.Constraint(self.model.attr_idx, rule=ztime_var4)
+
+    def zprice_var1(m, d, a):
+        return m.z_price_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+    def zprice_var2(m, d, a):
+        return m.z_price_var[d,a] <= m.z_price[d,a] 
+
+    def zprice_var3(m, d, a):
+        return m.z_price_var[d,a] >= m.z_price[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+    def zprice_var4(m, d, a):
+        return m.z_price_var[d,a] >= 0
+
+    self.model.z_price_var1 = pyo.Constraint(self.model.attr_idx, rule=zprice_var1)
+    self.model.z_price_var2 = pyo.Constraint(self.model.attr_idx, rule=zprice_var2)
+    self.model.z_price_var3 = pyo.Constraint(self.model.attr_idx, rule=zprice_var3)
+    self.model.z_price_var4 = pyo.Constraint(self.model.attr_idx, rule=zprice_var4)       
+
+
     self.model.unique_attr = pyo.Constraint(
         self.model.attractions,
-        rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+        rule=lambda m, a: sum(m.select_attr[d, a] for d in range(m.attr_data[a]['start_stage'],m.attr_data[a]['end_stage'] + 1)) <= 1
     )
 
     self.model.unique_rest = pyo.Constraint(
         self.model.restaurants,
-        rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+        rule=lambda m, r: sum(m.select_rest[d, r] for d in range(m.rest_data[r]['start_stage'],m.rest_data[r]['end_stage'] + 1)) <= 1
     )
 
     transfer_day = 0
@@ -1475,23 +2218,15 @@ objective: |
     
     self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
-    
-    ## 多阶段景点，酒店，餐饮约束
-    def stage_attr_rule(m, d, a):
-        return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
-    
+          
     def stage_hotel_rule(m, d, h):
         transfer_day = self.ir.stages[0].travel_days
         if self.cfg.multi_stage and d == transfer_day:
             return pyo.Constraint.Skip ##换乘酒店跨市
         return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
     
-    def stage_rest_rule(m, d, r):
-        return m.select_rest[d, r] * (d - self.model.rest_data[r]['start_stage']) * (d - self.model.rest_data[r]['end_stage']) <= 0
-    
-    self.model.stage_attr = pyo.Constraint(self.model.days, self.model.attractions, rule=stage_attr_rule)
     self.model.stage_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=stage_hotel_rule)
-    self.model.stage_rest = pyo.Constraint(self.model.days, self.model.restaurants, rule=stage_rest_rule)
+
 
 
     if len(self.cross_city_train_departure) > 0:
@@ -1508,15 +2243,17 @@ objective: |
         )
     ##约束1
 
-    self.model.attr_num = pyo.Constraint(
-        self.model.days,
-        rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
-    )
+    def attr_num_rule(m, d):
+        # 只在当天可选的景点上求和
+        return sum(m.select_attr[d, a] for (dd, a) in m.attr_idx if dd == d) == 1
 
-    self.model.rest_num = pyo.Constraint(
-        self.model.days,
-        rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
-    )
+    self.model.attr_num = pyo.Constraint(self.model.days, rule=attr_num_rule)
+
+    def rest_num_rule(m, d):
+        # 只在当天可选的景点上求和
+        return sum(m.select_rest[d, r] for (dd, r) in m.rest_idx if dd == d) == 3
+
+    self.model.rest_num = pyo.Constraint(self.model.days, rule=rest_num_rule)
     
 
     self.model.hotel_num = pyo.Constraint(
@@ -1524,24 +2261,26 @@ objective: |
         rule=lambda m, d:  sum(m.select_hotel[d, h] for h in m.accommodations) == 1
     )
 
+    ##约束2
+    
+    def infra_trans_rule(m, d):
+        city = day_to_city[d]
+        if not cfg.infra_city_transportation:
+            return pyo.Constraint.Skip
+        if cfg.infra_city_transportation[city] == 'public_transportation':
+            return m.trans_mode[d] == 1
+        elif cfg.infra_city_transportation[city] == 'taxi':
+            return m.trans_mode[d] == 0
+        else:
+            return pyo.Constraint.Skip
+        
+    self.model.trans_mode_rule = pyo.Constraint(
+        self.model.days,
+        rule=infra_trans_rule
+    )
+
+
     {objective function code占位符}
-  ```
-  除了以上的pyomo建模代码，还提供了用于市内交通的查询函数：
-  ```python
-  def get_trans_params(intra_city_trans, poi_id1, poi_id2, param_type):
-    for key in [f"{poi_id1},{poi_id2}", f"{poi_id2},{poi_id1}"]:
-        if key in intra_city_trans:
-            data = intra_city_trans[key]
-            return {
-                'taxi_duration': float(data.get('taxi_duration')),
-                'taxi_cost': float(data.get('taxi_cost')),
-                'bus_duration': float(data.get('bus_duration')),
-                'bus_cost': float(data.get('bus_cost'))
-            }[param_type]
-  ```
-  在使用时可通过以下方式调用:
-  ```python
-  get_trans_params(self.intra_city_trans, p1, p2, 'taxi_duration') #返回p1到p2的打车耗时
   ```
 
   ### 预设函数
@@ -1556,13 +2295,13 @@ objective: |
     返回某一天在**餐厅用餐所花费的总时间**（不包括排队时间）。
 
   4. **get_daily_total_transportation_time(self, day)**  
-    返回某一天的**总交通时间**（若为多日行程，则包含城市内的景点/餐厅/酒店之间的交通时间）。注意，这里不包括跨城交通，如果用户提到的是总时间/总交通时间，你需要额外计算跨城的高铁的来回duration。
+    返回某一天的**总交通时间**（若为多日行程，则包含城市内的景点/餐厅/酒店之间的交通时间）。注意，get_daily_total_transportation_time**不包括**跨城交通，如果用户提到的是总时间/总交通时间，你需要额外计算跨城的高铁的来回duration。
 
   5. **get_daily_total_attraction_time(self, day)**
     返回某天**在景点游玩的总时间**。
 
   6. **get_daily_total_cost(self, day)**  
-    返回某一天的**综合花费总额**，包括景点、餐饮、交通、住宿、高铁等费用（自动考虑人数与天数）。
+    返回某一天的**综合花费总额**，包括景点、餐饮、交通、住宿、高铁等费用（自动考虑人数与天数），注意：get_daily_total_cost已经包括了跨城的交通费用，若使用此函数，你无需再额外计算跨城的交通的费用。
 
   7. **get_daily_total_restaurant_cost(self, day)**  
     返回某一天的**餐饮花费总额**（已考虑人数）。
@@ -1610,7 +2349,9 @@ objective: |
    'cost': (float)景点的人均票价,
    'type': (str)景点的类型,
    'rating': (float)景点的评分,范围为[0，5]，一般景点的评分越高，用户体验越好，
-   'duration': (float)景点的游玩时长，单位为分钟
+   'duration': (float)景点的游玩时长，单位为分钟,
+    'start_stage': (int)表示该景点有效的起始天，比如1代表该景点在第1天起有效，包括第1天
+    'end_stage': (int)表示该景点有效的结束天，比如5代表该景点在第5天后无效，第5天仍然有效
   }
   #### Accommodation
   {
@@ -1619,7 +2360,9 @@ objective: |
     'cost': (float)酒店人均价格，单位元,
     'type': (str)酒店类型，可包含酒店的星级信息等,
     'rating': (float)酒店评分,范围为[0，5]，一般酒店评分越高，用户体验越好,
-    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等
+    'feature': (str)酒店的特色，如'早茶','免费接送','免费停车'等等,
+    'start_stage': (int)表示该酒店有效的起始天，比如1代表该酒店在第1天起有效，包括第1天
+    'end_stage': (int)表示该酒店有效的结束天，比如5代表该酒店在第5天后无效，第5天仍然有效
   }
   #### Restaurant
   {
@@ -1630,7 +2373,9 @@ objective: |
     'rating': (float)餐厅评分,范围为[0，5]，一般餐厅评分越高，用户体验越好,
     'queue_time': (float)餐厅排队时间，单位为分钟,
     'duration': (float)人均用餐时间，单位为分钟,
-    'recommended_food': (str)该餐厅推荐的菜品
+    'recommended_food': (str)该餐厅推荐的菜品,
+    'start_stage': (int)表示该餐厅有效的起始天，比如1代表该餐厅在第1天起有效，包括第1天
+    'end_stage': (int)表示该餐厅有效的结束天，比如5代表该餐厅在第5天后无效，第5天仍然有效
   }
   #### 跨城交通
   {
@@ -1679,7 +2424,7 @@ objective: |
 
   ### 4. 多目标优化示例
   用户希望控制预算同时兼顾景点品质、用餐体验与住宿舒适度，优先规划紧凑合理路线，尽量延长游玩时间、减少通勤和排队时间。
-  分析：用户希望控制预算，故优化目标1为最小化开销；用户希望兼顾景点和用餐体验以及住宿舒适度，故优化目标2为最大化总评分；用户希望延长游玩时间，即最大化景点的duration之和，此即优化目标3；用户希望减少通勤时间，故最小化通勤时间为优化目标4；用户希望减少排队时间，此即优化目标5。
+  分析：用户希望控制预算，故优化目标1为最小化开销；用户希望兼顾景点和用餐体验以及住宿舒适度，故优化目标2为最大化总评分；用户希望延长游玩时间，即最大化景点的duration之和，此即优化目标3；用户希望减少通勤时间，故最小化通勤时间(跨城交通和市内交通)为优化目标4；用户希望减少排队时间，此即优化目标5。
   ```python
   def objective_rule(model):
     total_cost = sum(self.get_daily_total_cost(day) for day in days) 
@@ -1687,6 +2432,17 @@ objective: |
     total_attraction_time = sum(self.get_daily_attraction_time(day) for day in days)
     total_transport_time = sum(self.get_daily_total_transportation_time(day) for day in days)
     total_queue_time = sum(self.get_daily_queue_time(day) for day in days)
+    ## 由于函数指南中明确声明了get_daily_total_transportation_time不含跨城交通的时间，故这里需要额外计算。如果有中转的跨城交通也要算上。
+    if self.cfg.multi_stage:
+      train_transfer_time = sum(self.model.select_train_transfer[t] * self.model.train_transfer_data[t]['duration']
+            for t in self.model.train_transfer)
+      total_transport_time += train_transfer_time
+    train_departure_time = sum(self.model.select_train_departure[t] * self.model.train_departure_data[t]['duration']
+            for t in self.model.train_departure)
+    train_back_cost_time = sum(self.model.select_train_back[t] * self.model.train_back_data[t]['duration']
+            for t in self.model.train_back)
+    total_transport_time += train_departure_time + train_back_cost_time
+
     # 最大化评分和景点停留时间，最小化交通时间，排队时间与金钱开销
     return total_rating + total_attraction_time - total_transport_time - total_queue_time - total_cost 
 
@@ -1707,13 +2463,13 @@ objective: |
   ```
   ### 6. 隐式优化目标
   用户提供了20000元的预算，希望尽可能花光预算
-  分析：该目标可转换为行程总开销与20000元越接近越好
+  分析：系统会自动构建预算为20000元的约束，故这个优化目标可以转换为最大化开销的目标函数
   ```python
   def objective_rule(model):
-    total_cost = sum(self.get_daily_total_cost(day) for day in days)
-    return (20000 - total_cost) 
+    total_cost = sum(self.get_daily_total_cost(day) for day in days) #get_daily_total_cost包含了一天中所有可能的开销，无需额外计算
+    return total_cost 
 
-  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.minimize)
+  self.model.obj = pyo.Objective(rule = objective_rule, sense=pyo.maximize)
   ```
 
   ## 输出协议

@@ -460,7 +460,7 @@ def ir_from_json(json_str: str) -> IR:
     # 3. 构建并返回IR实例
     return IR(
         start_date=data["start_date"],
-        peoples=data["peoples"],
+        peoples=data.get("peoples", 1),
         total_travel_days=data["total_travel_days"],
         budgets=data.get("budgets", 0),  # 支持默认值
         children_num=data.get("children_num", 0),
@@ -482,13 +482,14 @@ def dynamic_constraint_from_json(json_str: str) -> dynamic_constraint:
         return Expr.from_dict(expr_data)
     
     # 3. 映射所有字段（基础字段直接取，Expr字段通过parse_expr转换）
+    num_travlers=data.get("num_travlers",1)
     return dynamic_constraint(
         # 基础字段
-        num_travlers=data["num_travlers"],
-        children_num=data["children_num"],
-        rooms_per_night=data["rooms_per_night"],
-        peoples_per_car = data["peoples_per_car"],
-        multi_stage=data["multi_stage"],
+        num_travlers=data.get("num_travlers",1),
+        children_num=data.get("children_num", 0),
+        rooms_per_night=data.get("rooms_per_night", num_travlers // 2),
+        peoples_per_car = data.get("peoples_per_car",4),
+        multi_stage=data.get("multi_stage",False),
         # 时间相关
         daily_total_time=parse_expr(data.get("daily_total_time")),
         daily_queue_time=parse_expr(data.get("daily_queue_time")),
@@ -703,20 +704,13 @@ class template:
     def get_daily_total_time(self,day):
         activity_time = sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['duration']
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         ) + sum(
             self.model.select_rest[day, r] * (self.model.rest_data[r]['duration'] + self.model.rest_data[r]['queue_time'])
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
-        real_person_num = self.ir.peoples - self.ir.children_num
         if self.ir.total_travel_days > 1:
-            trans_time = sum(
-                self.model.attr_hotel[day, a, h] * ( 
-                        (1 - self.model.trans_mode[day]) * (get_trans_params(self.intra_city_trans, a, h, 'taxi_duration') + get_trans_params(self.intra_city_trans, h, a, 'taxi_duration')) + 
-                        self.model.trans_mode[day] * (get_trans_params(self.intra_city_trans, a, h, 'bus_duration') + get_trans_params(self.intra_city_trans, h, a, 'bus_duration'))            
-                )
-                for (a, h) in self.model.AH_by_day[day]
-            ) if self.ir.total_travel_days > 1 else 0
+            trans_time = sum(self.model.z_time_var[day,a] for a in self.model.attr_by_day[day]) 
         else:
             trans_time = 0
 
@@ -725,15 +719,15 @@ class template:
     def get_daily_total_attraction_time(self,day):
         return sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['duration']
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         )
     def get_daily_total_rating(self,day):
         sum_rating = sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['rating']
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         ) + sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['rating']
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
         if day == 1 or (self.cfg.multi_stage and day == self.ir.stages[0].travel_days + 1):
             sum_rating += sum(
@@ -745,13 +739,13 @@ class template:
     def get_daily_attraction_rating(self,day):
         return sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['rating']
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         )
     
     def get_daily_restaurant_rating(self,day):
         return sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['rating']
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
     
     def get_daily_hotel_rating(self,day):
@@ -765,30 +759,27 @@ class template:
     def get_daily_queue_time(self,day):
         return sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['queue_time']
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
     
     def get_daily_total_restaurant_time(self,day):
         return sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['duration']
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
     
     def get_daily_total_transportation_time(self,day):
         return sum(
-                self.model.attr_hotel[day, a, h] * ( 
-                        (1 - self.model.trans_mode[day]) * (get_trans_params(self.intra_city_trans, a, h, 'taxi_duration') + get_trans_params(self.intra_city_trans, h, a, 'taxi_duration')) + 
-                        self.model.trans_mode[day] * (get_trans_params(self.intra_city_trans, a, h, 'bus_duration') + get_trans_params(self.intra_city_trans, h, a, 'bus_duration'))            
-                )
-                for (a, h) in self.model.AH_by_day[day]
+                self.model.z_time_var[day,a] for a in self.model.attr_by_day[day]
             ) if self.ir.total_travel_days > 1 else 0
     
     def get_daily_total_cost(self,day):
         ## 景点，酒店，交通，吃饭，高铁, 人数
+        # print('call total cost')
         real_peoples = self.ir.peoples - self.ir.children_num
         attraction_cost = sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['cost']
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         )
         if day == self.ir.total_travel_days:
             hotel_cost = 0
@@ -805,18 +796,13 @@ class template:
                     for h in self.model.accommodations
                 )
 
-        cars = (real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car
         transport_cost = sum(
-            self.model.attr_hotel[day, a, h]* ( 
-                    (1 - self.model.trans_mode[day]) * cars * (get_trans_params(self.intra_city_trans, a, h, 'taxi_cost') + get_trans_params(self.intra_city_trans, h, a, 'taxi_cost')) + 
-                    self.model.trans_mode[day] * real_peoples * (get_trans_params(self.intra_city_trans, a, h, 'bus_cost') + get_trans_params(self.intra_city_trans, h, a, 'bus_cost'))            
-                )
-            for (a, h) in self.model.AH_by_day[day]
+            self.model.z_price_var[day,a] for a in self.model.attr_by_day[day]
         ) if self.ir.total_travel_days > 1 else 0
 
         restaurant_cost = sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['cost']
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
         train_cost = 0
         if day == 1:
@@ -835,14 +821,14 @@ class template:
         real_peoples = self.ir.peoples - self.ir.children_num
         return sum(
             self.model.select_rest[day, r] * self.model.rest_data[r]['cost'] * real_peoples
-            for r in self.model.restaurants
+            for r in self.model.rest_by_day[day]
         )
     
     def get_daily_total_attraction_cost(self,day):
         real_peoples = self.ir.peoples - self.ir.children_num
         return sum(
             self.model.select_attr[day, a] * self.model.attr_data[a]['cost'] * real_peoples
-            for a in self.model.attractions
+            for a in self.model.attr_by_day[day]
         )
 
     def get_daily_total_hotel_cost(self,day):
@@ -865,14 +851,7 @@ class template:
         if self.ir.total_travel_days <= 1:
             return 0
         real_peoples = self.ir.peoples - self.ir.children_num
-        cars = (real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car
-        transport_cost = sum(
-            self.model.attr_hotel[day, a, h]* ( 
-                    (1 - self.model.trans_mode[day]) * cars * (get_trans_params(self.intra_city_trans, a, h, 'taxi_cost') + get_trans_params(self.intra_city_trans, h, a, 'taxi_cost')) + 
-                    self.model.trans_mode[day] * real_peoples * (get_trans_params(self.intra_city_trans, a, h, 'bus_cost') + get_trans_params(self.intra_city_trans, h, a, 'bus_cost'))            
-                )
-            for (a, h) in self.model.AH_by_day[day]
-        ) if self.ir.total_travel_days > 1 else 0
+        transport_cost = sum(self.model.z_price_var[day,a] for a in self.model.attr_by_day[day])
         
         train_cost = 0
         if day == 1:
@@ -1169,11 +1148,27 @@ class template:
             self.city_to_day_range = city_to_day_range
             self.day_to_city = day_to_city
             return city_to_day_range,day_to_city
+
+    def get_attraction_hotel_taxi_time(self, a, h):
+        return (get_trans_params(self.intra_city_trans, a, h, 'taxi_duration') + get_trans_params(self.intra_city_trans, h, a, 'taxi_duration')) 
+    
+    def get_attraction_hotel_taxi_cost(self, a, h):
+        real_peoples = self.ir.peoples - self.ir.children_num
+        cars = (real_peoples + self.cfg.peoples_per_car - 1) // self.cfg.peoples_per_car
+        return  cars * (get_trans_params(self.intra_city_trans, a, h, 'taxi_cost') + get_trans_params(self.intra_city_trans, h, a, 'taxi_cost')) 
+    
+    def get_attraction_hotel_bus_time(self, a, h):
+        return (get_trans_params(self.intra_city_trans, a, h, 'bus_duration') + get_trans_params(self.intra_city_trans, h, a, 'bus_duration')) 
+
+    def get_attraction_hotel_bus_cost(self, a, h):
+        real_peoples = self.ir.peoples - self.ir.children_num
+        return real_peoples * (get_trans_params(self.intra_city_trans, a, h, 'bus_cost') + get_trans_params(self.intra_city_trans, h, a, 'bus_cost'))
+            
     def make(self, cfg: dynamic_constraint):
 
         city_to_day_range,day_to_city = self.get_city_to_day_range()
         self.cfg = cfg
-
+        
         attraction_dict = self.poi_data['attractions'] ## {'attractions':{'id_1':{...},'id_2':{...},...}}
         hotel_dict = self.poi_data['accommodations']
         restaurant_dict = self.poi_data['restaurants']
@@ -1276,8 +1271,8 @@ class template:
         )
         ## variables
         self.model.select_hotel = pyo.Var(self.model.days, self.model.accommodations, domain=pyo.Binary)
-        self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
-        self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
+        # self.model.select_attr = pyo.Var(self.model.days, self.model.attractions, domain=pyo.Binary)
+        # self.model.select_rest = pyo.Var(self.model.days, self.model.restaurants, domain=pyo.Binary)
         self.model.trans_mode = pyo.Var(self.model.days, domain=pyo.Binary) # 1为公交 0为打车
         self.model.select_train_departure = pyo.Var(self.model.train_departure, domain=pyo.Binary)
         self.model.select_train_back = pyo.Var(self.model.train_back, domain=pyo.Binary)
@@ -1298,44 +1293,136 @@ class template:
             d: [a for a, v in attraction_dict.items() if v['start_stage'] <= d <= v['end_stage']]
             for d in days
         }
-
-        # 日期 → 可用酒店
-        hotel_by_day = {
-            d: [h for h, v in hotel_dict.items() if v['start_stage'] <= d <= v['end_stage']]
+        rest_by_day = {
+            d: [r for r, v in restaurant_dict.items() if v['start_stage'] <= d <= v['end_stage']]
             for d in days
         }
-        valid_idx = [
-            (d,a,h)
+        self.model.attr_by_day = pyo.Set(self.model.days, dimen=1, initialize=attr_by_day)
+        self.model.rest_by_day = pyo.Set(self.model.days, dimen=1, initialize=rest_by_day)
+        AD_idx = [
+            (d, a)
             for d in days
             for a in attr_by_day[d]
-            for h in hotel_by_day[d]
         ]
-        self.model.ah_idx = pyo.Set(initialize=valid_idx, dimen=3)
-        self.model.AH_by_day = pyo.Set(
-            self.model.days, dimen=2,
-            initialize=lambda m, d: [(a, h) for (dd, a, h) in m.ah_idx if dd == d]
-        )
-        # 连续变量即可
-        self.model.attr_hotel = pyo.Var(self.model.ah_idx, domain=pyo.NonNegativeReals, bounds=(0, 1), initialize=0)
 
-        # 行守恒：对每个 (d,a)，Σ_h y[d,a,h] = x[d,a]
-        def row_link_rule(m, d, a):
-            return sum(m.attr_hotel[d, a, h] for (dd, aa, h) in m.ah_idx if dd == d and aa == a) == m.select_attr[d, a]
-        self.model.link_row = pyo.Constraint(self.model.days, self.model.attractions, rule=row_link_rule)
-
-        # 列守恒：对每个 (d,h)，Σ_a y[d,a,h] = z[d,h]
-        def col_link_rule(m, d, h):
-            return sum(m.attr_hotel[d, a, h] for (dd, a, hh) in m.ah_idx if dd == d and hh == h) == m.select_hotel[d, h]
-        self.model.link_col = pyo.Constraint(self.model.days, self.model.accommodations, rule=col_link_rule)      
+        RD_idx = [
+            (d, r)
+            for d in days
+            for r in rest_by_day[d]
+        ]
         
+        self.model.attr_idx = pyo.Set(dimen=2, initialize=AD_idx)
+        self.model.select_attr = pyo.Var(self.model.attr_idx, domain=pyo.Binary)
+        self.model.rest_idx = pyo.Set(dimen=2, initialize=RD_idx)
+        self.model.select_rest = pyo.Var(self.model.rest_idx, domain=pyo.Binary)
+
+        self.model.taxi_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_time(a,h))
+        self.model.bus_time = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_time(a,h))
+        self.model.taxi_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_taxi_cost(a,h))
+        self.model.bus_cost = pyo.Param(self.model.attractions, self.model.accommodations, initialize=lambda m,a,h: self.get_attraction_hotel_bus_cost(a,h))
+        self.model.attr_taxi_time = pyo.Expression(
+            self.model.days, self.model.attractions,
+            rule=lambda m, d, a: sum(m.taxi_time[a,h] * m.select_hotel[d,h] for h in m.accommodations)
+        )
+        self.model.attr_bus_time = pyo.Expression(
+            self.model.days, self.model.attractions, 
+            rule=lambda m, d, a: sum(m.bus_time[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+        self.model.attr_taxi_cost = pyo.Expression(
+            self.model.days, self.model.attractions,
+            rule=lambda m, d, a: sum(m.taxi_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+        self.model.attr_bus_cost = pyo.Expression(
+            self.model.days, self.model.attractions,
+            rule=lambda m, d, a: sum(m.bus_cost[a,h] * m.select_hotel[d,h] for h in m.accommodations))
+
+
+        self.model.z_time  = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+        self.model.z_price = pyo.Var(self.model.days, self.model.attractions, domain=pyo.NonNegativeReals)
+
+        BIG_M = 10000
+
+        # ===== time =====
+        def ztime_upper1(m, d, a):
+            return m.z_time[d,a] <= m.attr_bus_time[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+        def ztime_upper2(m, d, a):
+            return m.z_time[d,a] <= m.attr_taxi_time[d,a] + BIG_M*(m.trans_mode[d])
+
+        def ztime_lower1(m, d, a):
+            return m.z_time[d,a] >= m.attr_bus_time[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+        def ztime_lower2(m, d, a):
+            return m.z_time[d,a] >= m.attr_taxi_time[d,a] - BIG_M*(m.trans_mode[d])
+
+        # ===== cost =====
+        def zprice_upper1(m, d, a):
+            return m.z_price[d,a] <= m.attr_bus_cost[d,a] + BIG_M*(1 - m.trans_mode[d])
+
+        def zprice_upper2(m, d, a):
+            return m.z_price[d,a] <= m.attr_taxi_cost[d,a] + BIG_M*(m.trans_mode[d])
+
+        def zprice_lower1(m, d, a):
+            return m.z_price[d,a] >= m.attr_bus_cost[d,a] - BIG_M*(1 - m.trans_mode[d])
+
+        def zprice_lower2(m, d, a):
+            return m.z_price[d,a] >= m.attr_taxi_cost[d,a] - BIG_M*(m.trans_mode[d])
+
+
+        self.model.z_time_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper1)
+        self.model.z_time_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_upper2)
+        self.model.z_time_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower1)
+        self.model.z_time_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=ztime_lower2)
+
+        self.model.z_price_up1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper1)
+        self.model.z_price_up2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_upper2)
+        self.model.z_price_lo1 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower1)
+        self.model.z_price_lo2 = pyo.Constraint(self.model.days, self.model.attractions, rule=zprice_lower2)
+  
+        self.model.z_time_var  = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals)
+        self.model.z_price_var = pyo.Var(self.model.attr_idx, domain=pyo.NonNegativeReals) 
+
+        def ztime_var1(m, d, a):
+            return m.z_time_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+        def ztime_var2(m, d, a):
+            return m.z_time_var[d,a] <= m.z_time[d,a] 
+
+        def ztime_var3(m, d, a):
+            return m.z_time_var[d,a] >= m.z_time[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+        def ztime_var4(m, d, a):
+            return m.z_time_var[d,a] >= 0
+
+        self.model.z_time_var1 = pyo.Constraint(self.model.attr_idx, rule=ztime_var1)
+        self.model.z_time_var2 = pyo.Constraint(self.model.attr_idx, rule=ztime_var2)
+        self.model.z_time_var3 = pyo.Constraint(self.model.attr_idx, rule=ztime_var3)
+        self.model.z_time_var4 = pyo.Constraint(self.model.attr_idx, rule=ztime_var4)
+
+        def zprice_var1(m, d, a):
+            return m.z_price_var[d,a] <= BIG_M * m.select_attr[d,a]
+
+        def zprice_var2(m, d, a):
+            return m.z_price_var[d,a] <= m.z_price[d,a] 
+
+        def zprice_var3(m, d, a):
+            return m.z_price_var[d,a] >= m.z_price[d,a] - BIG_M*(1 - m.select_attr[d,a])
+
+        def zprice_var4(m, d, a):
+            return m.z_price_var[d,a] >= 0
+
+        self.model.z_price_var1 = pyo.Constraint(self.model.attr_idx, rule=zprice_var1)
+        self.model.z_price_var2 = pyo.Constraint(self.model.attr_idx, rule=zprice_var2)
+        self.model.z_price_var3 = pyo.Constraint(self.model.attr_idx, rule=zprice_var3)
+        self.model.z_price_var4 = pyo.Constraint(self.model.attr_idx, rule=zprice_var4)       
+
+
         self.model.unique_attr = pyo.Constraint(
             self.model.attractions,
-            rule=lambda m, a: sum(m.select_attr[d, a] for d in m.days) <= 1
+            rule=lambda m, a: sum(m.select_attr[d, a] for d in range(m.attr_data[a]['start_stage'],m.attr_data[a]['end_stage'] + 1)) <= 1
         )
 
         self.model.unique_rest = pyo.Constraint(
             self.model.restaurants,
-            rule=lambda m, r: sum(m.select_rest[d, r] for d in m.days) <= 1
+            rule=lambda m, r: sum(m.select_rest[d, r] for d in range(m.rest_data[r]['start_stage'],m.rest_data[r]['end_stage'] + 1)) <= 1
         )
 
         transfer_day = 0
@@ -1348,23 +1435,15 @@ class template:
         
         self.model.same_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=same_hotel_rule)
 
-        
-        ## 多阶段景点，酒店，餐饮约束
-        def stage_attr_rule(m, d, a):
-            return m.select_attr[d, a] * (d - self.model.attr_data[a]['start_stage']) * (d - self.model.attr_data[a]['end_stage']) <= 0
-        
+              
         def stage_hotel_rule(m, d, h):
             transfer_day = self.ir.stages[0].travel_days
             if self.cfg.multi_stage and d == transfer_day:
                 return pyo.Constraint.Skip ##换乘酒店跨市
             return m.select_hotel[d, h] * (d - self.model.hotel_data[h]['start_stage']) * (d - self.model.hotel_data[h]['end_stage']) <= 0
         
-        def stage_rest_rule(m, d, r):
-            return m.select_rest[d, r] * (d - self.model.rest_data[r]['start_stage']) * (d - self.model.rest_data[r]['end_stage']) <= 0
-        
-        self.model.stage_attr = pyo.Constraint(self.model.days, self.model.attractions, rule=stage_attr_rule)
         self.model.stage_hotel = pyo.Constraint(self.model.days, self.model.accommodations, rule=stage_hotel_rule)
-        self.model.stage_rest = pyo.Constraint(self.model.days, self.model.restaurants, rule=stage_rest_rule)
+
 
 
         if len(self.cross_city_train_departure) > 0:
@@ -1381,15 +1460,17 @@ class template:
             )
         ##约束1
 
-        self.model.attr_num = pyo.Constraint(
-            self.model.days,
-            rule=lambda m, d: sum(m.select_attr[d, a] for a in m.attractions) == 1
-        )
+        def attr_num_rule(m, d):
+            # 只在当天可选的景点上求和
+            return sum(m.select_attr[d, a] for (dd, a) in m.attr_idx if dd == d) == 1
 
-        self.model.rest_num = pyo.Constraint(
-            self.model.days,
-            rule=lambda m, d: sum(m.select_rest[d, r] for r in m.restaurants) == 3
-        )
+        self.model.attr_num = pyo.Constraint(self.model.days, rule=attr_num_rule)
+
+        def rest_num_rule(m, d):
+            # 只在当天可选的景点上求和
+            return sum(m.select_rest[d, r] for (dd, r) in m.rest_idx if dd == d) == 3
+
+        self.model.rest_num = pyo.Constraint(self.model.days, rule=rest_num_rule)
         
 
         self.model.hotel_num = pyo.Constraint(
@@ -1478,16 +1559,18 @@ class template:
         try:
         #############extra code##############
 
-            
 
+            
             pass
         #############extra code##############
         except: pass
 
     def configure_solver(self):
         solver = pyo.SolverFactory('scip')
-        solver.options['limits/time'] = 300
+        solver.options['limits/time'] = 50
         solver.options['limits/gap'] = 0.0
+        solver.options['presolving/emphasis'] = 'fast'  
+        solver.options["separating/maxrounds"] = 5  # 缩短 cuts 生成时间
         return solver
     
     def solve(self):
@@ -1536,11 +1619,11 @@ class template:
     def get_selected_poi(self, type, day, selected_poi):
         model = self.model
         if type == 'restaurant':
-            poi_set = model.restaurants
+            poi_set = model.rest_by_day[day]
             poi_data = model.rest_data
             select_set = model.select_rest
         else:
-            poi_set = model.attractions
+            poi_set = model.attr_by_day[day]
             poi_data = model.attr_data
             select_set = model.select_attr
 
@@ -1779,9 +1862,9 @@ if __name__ == '__main__':
     ##########################################################
 
     try:
-        # cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir) #TODO 将该行改为const.py中的代码
-        from mock import get_mock_data
-        cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data(days=[item.travel_days for item in ir.stages])
+        cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = fetch_data(ir) #TODO 将该行改为const.py中的代码
+        # from mock import get_mock_data
+        # cross_city_train_departure,cross_city_train_transfer,cross_city_train_back, poi_data, intra_city_trans = get_mock_data(days=[item.travel_days for item in ir.stages])
         for item in cross_city_train_departure:
             item['cost'] = float(item['cost'])
             item['duration'] = float(item['duration'])
@@ -1821,6 +1904,7 @@ if __name__ == '__main__':
         get_solution(tp)
         # get_solution
     except Exception as e:
+        # raise e
         def generate_date_range(start_date, date_format="%Y年%m月%d日"):
             start = datetime.strptime(start_date, date_format)
             days = ir.total_travel_days

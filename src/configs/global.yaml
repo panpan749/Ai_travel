@@ -1,12 +1,14 @@
+# api_url: http://maas-api.cn-huabei-1.xf-yun.com/v1
+# api_key: 'sk-rj8CIIyNuIwcpcDOEbCdC8E6Cd2c4f6088A3C8BaE24c4eDe'
 api_url: https://www.dmxapi.com/v1
-api_key: 'sk-ZNX2HgY5tAKJQvxprxde2TaDuBmTTe9ONElI2MwrkCG1AXqW'
+api_key: sk-ZNX2HgY5tAKJQvxprxde2TaDuBmTTe9ONElI2MwrkCG1AXqW
 indent: '    '
-lineno: 1777
-extra_lineno: 1481
-max_concurrency: 20
+lineno: 1860
+extra_lineno: 1562
+max_concurrency: 15
 extra_indent: '            '
 problem_file: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\复赛数据集\dataset\question.json'
-code_path: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\output\commit\code800'
+code_path: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\output\commit\code'
 template_file: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\src\template_multi_stage.py'
 question_prompt: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\output\commit\predict.json'
 log_path: 'D:\资料\AI攻略生成比赛\基于多智能体协同的高价值信息生成-数据集相关文件\基于多智能体协同的高价值信息生成-数据集相关文件\Ai_travel\output\logs'

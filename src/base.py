@@ -78,7 +78,7 @@ class LLM:
         self.api_key = Config.get_global_config().config['api_key']
     
     async def ask_llm(self, prompt):
-        client = AsyncOpenAI(api_key=self.api_key,base_url=self.api_url)       
+        client = AsyncOpenAI(api_key=self.api_key,base_url=self.api_url,timeout=300)       
         messages = [
             {"role": "system", "content": self.system_prompt},
         ] if self.system_prompt else []
@@ -86,8 +86,13 @@ class LLM:
         messages.append({"role": "user", "content": prompt})
 
         model_name = self.model_name
-        completion = await client.chat.completions.create(model=model_name, messages=messages) 
+        completion = await client.chat.completions.create(model=model_name, messages=messages,max_tokens = 8192) 
         
         return completion.choices[0].message.content
     async def invoke(self, prompt : str):
-        return await self.ask_llm(prompt)
+        while True:
+            try:
+                resp = await self.ask_llm(prompt)
+                return resp
+            except Exception as e:
+                print(f'发生报错 {e},重试中')
